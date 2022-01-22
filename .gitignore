@@ -10,3 +10,6 @@ scripts/__pycache__
 .ipynb_checkpoints/*
 scripts/.twitter_creds.json
 literature/
+*/*/.twitter_creds.json
+*/.twitter_creds.json
+*.pyc

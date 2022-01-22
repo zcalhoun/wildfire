@@ -30,6 +30,8 @@ class TwitterDataFrame(pd.DataFrame):
         This function will go ahead and return a pivot table on this data
         so that you can quickly look at tweet counts by day for this dataframe.
         """
+        if("date" not in self.columns):
+            self['date'] = [d.date() for d in self['created_at']]
         return pd.pivot_table(self, values='id', index='date',aggfunc='count')
         
     def get_coords(self):

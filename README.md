@@ -1,41 +1,19 @@
-# Twitter Search Term
-This repository contains helpful functions along with a TwitterSearchTerm class to facilitate pulling large sets of data from Twitter.
+# Wildfire
+This directory contains scripts and notebooks that help with analyzing how twitter can provide a source of information to help analyze the health impacts of wildfires. Please adhere to the following principles when using this repository:
+* Add notebooks under the notebooks subfolder.
+* If you find yourself rewriting the same code more than once, turn it into a script and put it under the "scripts" directory.
+* If you save any data, please add it to a separate directory called "data." This file is already added to the .gitignore folder, so it will not be pushed to the repository. This means that data will not be backed up.
 
-## Goals of this repository
-* Make searching twitter using the 2.0 API quick and easy.
-* Create functionality that generates twitter files reliably and easily.
+## What this file does not contain
+Please reference the [.gitignore](.gitignore) file to see what will be ommitted when you push to this directory. Any data files should be ignored to minimize the directory size. The [.gitignore](.gitignore) file is configured to recognize these files and hopefully ignore them, but please make sure that you check the files being tracked before you commit to the repository. 
 
-## Getting started
-Currently, you only need the `utils.py` and `searchTwitter.py` file to get started. Once you have these downloaded on your machine, you will need to generate a bearer token.
 
-The `utils.py` folder contains a function to make generating a bearer token easy. Once you generate that token, you are ready to start searching twitter.r
-
-### Generating your bearer token
-Twitter uses a bearer token to authenticate with their endpoint. This token should be stored in the file `.twitter_creds.json`. For security reasons, make sure you add this file to your `.gitignore` before pushing to a repository
-
-*If you are new using a `.gitignore` file, you can use the following one liner in bash to generate that file properly (make sure you are in your working directory):*
-```bash
-echo ".twitter_creds.json" > .gitignore
-```
-
-To generate the your JSON file containing the bearer token, you'll need your API Key and your API Key Secret. You can then run the following code with your values inserted. If all goes well, you'll see the response "Token generated" and `True`. 
+## Referencing scripts from notebooks
+Since we have our scripts saved in a different folder, we have to add the script to our path so we can leverage that code:
 
 ```python
-import utils as ut
-    
-r = ut.generate_bearer_token("api_key_here", "api_key_secret_here")
-print(r)
+# This will import the twitter code into your path.
+import sys
+sys.path.append("../scripts/twitter")
+from searchTwitter import TwitterDataFrame, TwitterSearchTerm
 ```
-
-This function automatically creates the `.twitter_creds.json` file, which is referenced when making other calls to the Twitter API.
-
-You are now ready to search Twitter!
-
-## Making your first search
-
-When making your first search query, I recommend the following process:
-1. Generate your search term.
-2. Run a "count" query to gauge how many tweets you should expect.
-3. Once your are comfortable with the count, *then* execute the tweet search. By checking the count first, you'll ensure you won't accidentally hit the [twitter api rate limit](https://developer.twitter.com/en/docs/twitter-api/rate-limits), and that your query will take about as long as you'd expect.
-
-Because twitter limits full-archive tweet searches to 1 request / sec, you should expect that your query takes a few seconds to run (each query gets a maximum of 500 results, so if your count is 10000, you should expect that your query takes 20 seconds to completely grab all of the data).
