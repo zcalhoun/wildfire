@@ -41,6 +41,17 @@ class TwitterDataFrame(pd.DataFrame):
             "lat":lat,
             "lon":lon
         }
+
+    def group_by_day(self):
+        """
+        This function agreggates tweets by date for further analysis.
+
+        TODO: Test this out.
+        """
+        if("date" not in self.columns):
+            self['date'] = [d.date() for d in self['created_at']]
+        pseudo_docs = pd.pivot_table(self,values="text",index="date",aggfunc=" ".join)
+        return pseudo_docs
         
     def zoom_in(self, lat, lon):
         """
@@ -150,8 +161,9 @@ class TwitterSearchTerm():
         coords = namedtuple('coords', 'lon lat')
         coordinate_map = defaultdict(coords)
 
-        for location in tweet_set['includes']['places']:
-            coordinate_map[str(location['id'])] = coords(*location['geo']['bbox'][0:2])
+        if('includes' in tweet_set):
+            for location in tweet_set['includes']['places']:
+                coordinate_map[str(location['id'])] = coords(*location['geo']['bbox'][0:2])
 
         lat = []
         lon = []
@@ -186,7 +198,7 @@ class TwitterSearchTerm():
             "end_time":self.endTime,
             "max_results": max_results,
             "tweet.fields":"geo,created_at",
-            "expansions":"geo.place_id",
+            "expansions":"geo.place_id,author_id",
             "place.fields":"geo,contained_within,country,full_name,name"
         }
         request_num = 1 # Counter for tracking requests
@@ -217,7 +229,7 @@ class TwitterSearchTerm():
             # Add a step to turn the created_at string to a datetime object
             #  - this makes functionality easier to use later on.
             date = datetime.strptime(row['created_at'],'%Y-%m-%dT%H:%M:%S.%fZ')
-            data.append([row['id'], row['text'], row['geo'], date, lats[i], lons[i]])
+            data.append([row['id'], row['author_id'], row['text'], row['geo'], date, lats[i], lons[i]])
 
         while("next_token" in response.json()["meta"]):
             request_num = request_num + 1
@@ -245,18 +257,19 @@ class TwitterSearchTerm():
 
             for i, row in enumerate(response.json()['data']):
                 if('geo' in row):
-                    data.append([row['id'], row['text'], row['geo'], row['created_at'],lats[i], lons[i]])
+                    data.append([row['id'], row['author_id'], row['text'], row['geo'], row['created_at'],lats[i], lons[i]])
                 else:
-                    data.append([row['id'], row['text'],None , row['created_at'],lats[i], lons[i]])
+                    data.append([row['id'], row['author_id'], row['text'],None , row['created_at'],lats[i], lons[i]])
         
         df = TwitterDataFrame(pd.DataFrame(data))
         df = df.rename(columns={
             0:'id',
-            1:'text',
-            2:'geo',
-            3:'created_at',
-            4:'lat',
-            5:'lon'
+            1:'author_id',
+            2:'text',
+            3:'geo',
+            4:'created_at',
+            5:'lat',
+            6:'lon'
         })
         print("Query finished")
         return df
