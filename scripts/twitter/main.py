@@ -4,7 +4,8 @@ import time
 
 # Construct list of months to cycle through
 months = ['01','02','03','04','05','06','07','08','09','10','11','12']
-years = ['2018','2019','2020','2021']
+# EDIT HERE to change years.
+years = ['2018','2019']#,'2020','2021']
 all_months = [y+'-'+m for y in years for m in months]
 
 # Construct query term
@@ -16,10 +17,12 @@ words = [
     "headache",
     "(itchy eyes)",
     "(sore throat)"]
+# EDIT here to change the query...
+#query_term = "("+" OR ".join(words)+") -has:links -is:retweet has:geo -has:media place_country:us"
 
-query_term = "("+" OR ".join(words)+") -has:links -is:retweet has:geo -has:media place_country:us"
+# In this case, we do not want to query on ANY words.
+query_term = "-has:links -is:retweet point_radius:[-122.5 37.8 25mi] has:geo lang:en -has:media place_country:us" 
 
-# test_term = "\"air pollution\" -has:links -is:retweet has:geo -has:media place_country:us"
 errors = []
 for i in range(len(all_months)):
     
@@ -41,10 +44,12 @@ for i in range(len(all_months)):
         errors.append(all_months[i])
         continue
     # Save tweets to a file.
-    tweets.to_csv('../data/health_tweets/'+all_months[i]+'.csv', index=False)
+    # EDIT here to change file destination
+    tweets.to_csv('../../data/san_francisco/'+all_months[i]+'.csv', index=False)
     # Break if last month is this month
     print()
-    if (all_months[i+1] == "2021-10"):
+    # EDIT here to be the last month
+    if (all_months[i+1] == "2019-01"):
         print("Script complete")
         break
     else:
@@ -53,6 +58,7 @@ for i in range(len(all_months)):
 # After for loop runs...print errors, if any.
 
 if(len(errors) > 0):
-    with open('../data/health_tweets/errors.txt', 'w') as f:
+    # EDIT here to change file destination
+    with open('../../data/san_francisco/errors.txt', 'w') as f:
         for e in errors:
             f.write("%s\n" % e)
