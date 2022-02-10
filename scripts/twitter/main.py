@@ -43,6 +43,9 @@ for i in range(len(all_months)):
     print("Querying for term count...")
     try:
         searchQuery.get_term_count()
+        if(i==0):
+            with open(data_target_dir+"check.txt","w") as f:
+                f.write(searchQuery.tweet_count)
     except:
         errors.append(all_months[i])
         continue
