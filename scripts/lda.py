@@ -14,12 +14,12 @@ num_topics = 10
 
 # Get the data
 def load_data():
-	"""
-	This function takes care of loading data, returning a dataframe
-	with the tweets that we want to look at.
+    """
+    This function takes care of loading data, returning a dataframe
+    with the tweets that we want to look at.
 
-	If you are going to change anything on this file, change it here.
-	"""
+    If you are going to change anything on this file, change it here.
+    """
     try:
         months = ['05','06','07','08','09','10','11','12']
         all_df = []
@@ -37,10 +37,10 @@ def format_data(data):
     The output of this function should be the pseudo docs that will be read
     by the LDA function.
     """
-    all_df = all_df.dropna()
+    data = data.dropna()
     # not_date = [d for d in all_df['created_at'] if type(d) ==float]
-    all_df['date'] = [datetime.strptime(d,'%Y-%m-%d %H:%M:%S').date() for d in all_df['created_at']]
-    pseudo_docs = pd.pivot_table(all_df,values="text",index="date",aggfunc=" ".join)
+    data['date'] = [datetime.strptime(d,'%Y-%m-%d %H:%M:%S').date() for d in data['created_at']]
+    pseudo_docs = pd.pivot_table(data,values="text",index="date",aggfunc=" ".join)
     # Only output the docs
     docs = pseudo_docs['text']
     return docs
@@ -77,12 +77,12 @@ def get_count_vec(docs,max_df):
     and the term_frequency for the docs provided.
     """
     cv = CountVectorizer(stop_words='english', max_df=max_df, min_df=5)
-    term_freq = cv.fit_transform(ct)
+    term_freq = cv.fit_transform(docs)
     feature_names = cv.get_feature_names_out()
     return cv, term_freq
 
 def main():
-	print("In main")
+    print("In main")
     # Load the data
     data = load_data()
     # Format the data - this should 
@@ -92,7 +92,7 @@ def main():
     # Clean up the words
     pseudo_docs = normalize_words(pseudo_docs)
     # Create count vectors and the term frequency
-    count_vec,tf = get_count_vec(pseudo_docs)
+    count_vec,tf = get_count_vec(pseudo_docs,.95)
     # Run LDA on this data.
     lda = LatentDirichletAllocation(max_iter=1000, n_components=num_topics, random_state=42)
     topic_assignment = lda.fit_transform(tf)
@@ -103,5 +103,5 @@ def main():
     dump(topic_assignment, 'topic_assignment.joblib')
 
 if __name__ == "__main__":
-	# Load the data
-	main()
+    # Load the data
+    main()
