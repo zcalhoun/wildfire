@@ -10,7 +10,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from joblib import dump
 
 # Set up global variables
-num_topics = 10
+num_topics = 20
 
 # Get the data
 def load_data():
