@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import pandas as pd
 import torch
+import joblib
 
 from torch import nn, optim
 from torch.nn import functional as F
@@ -18,6 +19,8 @@ from sklearn.feature_extraction.text import CountVectorizer
 import spacy
 from nltk.tokenize import TweetTokenizer
 
+# This flag is set while I'm testing out this code.
+DEBUG=True
 
 class Tweets():
     """Tweets class. This class handles the data and preprocesses
@@ -57,12 +60,26 @@ class Tweets():
         self.random_state = random_state
 
         # Load in each of the CSVs.
+        print("Loading in the data...")
         tweets = self._load_data()
 
+        # TODO - remove this in the future!
+        if DEBUG:
+            tweets = tweets.head(1000)
         # Perform some preprocessing as an intermediate step
-        tweets['clean_tweets'] = self._preprocess()
+        # This is a very expensive line of code (takes a long time
+        # and I am going to cache the results to use between runs.
+        if cached(path, 'lemmatized.joblib'):
+            print("Cached file was found...loading lemmatized tweets" + \
+                "from the cache.")
+
+            tweets['clean_tweets'] = load_cached(path, 'lemmatized.joblib')
+        else:
+            print("No cache found...loading now")
+            tweets['clean_tweets'] = self._preprocess(tweets)
 
         # Create the count vector to process the tweets
+        print("Creating the count vector")
         self.count_vec = CountVectorizer(stop_words='english',
                                          min_df=min_df,
                                          max_df=max_df)
@@ -76,12 +93,12 @@ class Tweets():
         self.x['count_vec'] = self.count_vec.fit_transform(self.x['clean_tweets'])
 
         if test_size > 0:
-            self.x_test['count_vec'] = self.count_vec.transform(self.x_test['count_vec'])
+            self.x_test['count_vec'] = self.count_vec.transform(self.x_test['clean_tweets'])
 
         self.agg_count = agg_count
         self.sample_rate = sample_rate
         self.data = None
-        self.vocab_size = len(self.count_vec.get_feature_names_out)
+        self.vocab_size = len(self.count_vec.get_feature_names_out())
 
     def _load_data(self):
         """
@@ -90,12 +107,18 @@ class Tweets():
         """
         data_frame = []
         # Load the data
-        for file in os.listdir(self.path):
+        files = os.listdir(self.path)
+        # If there is a cached file, then remove from
+        # the list
+        if 'cached' in files:
+            files.pop(files.index('cached'))
+
+        for file in files:
             data_frame.append(pd.read_csv(self.path+file))
 
         return pd.concat(data_frame)
 
-    def _preprocess(self):
+    def _preprocess(self, tweets):
         """
         This function is used to handle lemmatizing the data
         prior to its use.
@@ -103,11 +126,21 @@ class Tweets():
         tweet_tokenizer = TweetTokenizer()
         nlp = spacy.load('en_core_web_sm', disable=['parser', 'ner'])
         lemmatized = []
-        for tweet in self.tweets['text']:
+
+        for tweet in tweets['text']:
             clean_tweet = [w for w in tweet_tokenizer.tokenize(tweet.lower())
                            if w.isalpha()]
             doc = nlp(" ".join(clean_tweet))
             lemmatized.append(" ".join([token.lemma_ for token in doc]))
+
+        # Save this to the cached folder
+        # Try to save the file to the cached folder.
+        # If it doesn't exist...create the cache.
+        try:
+            joblib.dump(lemmatized, self.path+'cached/lemmatized.joblib')
+        except FileNotFoundError:
+            os.mkdir(self.path+"/cached/")
+            joblib.dump(lemmatized, self.path+'cached/lemmatized.joblib')
         return lemmatized
 
     def load(self, test=False):
@@ -116,7 +149,6 @@ class Tweets():
             return TweetDataset(self.x_test)
 
         return TweetDataset(self.x)
-
 
 
 class TweetDataset(Dataset):
@@ -156,105 +188,10 @@ class TweetDataset(Dataset):
 
         # Randomly sample from this date.
         #  1. Only look at count_vecs on this date.
-        #  2. Select 10,000 and sum.
+        #  2. Sample agg_count number of tweets, sum the count vectors,
+        #     and return.
         count_vecs = self.df[self.df['date'] == date]['count_vec']
-
-        # Return a tensorized version of the array
         return torch.from_numpy(count_vecs.sample(self.agg_count).sum())
-
-
-class TweetData():
-    model = VAE()    """
-    This class handles parsing out the tweet data
-    """
-    def __init__(self, test_size=0.2, debug=False, min_df=5, max_df=0.5, agg_count=1000):
-        """
-            Inputs
-        -----------
-        debug<bool> : If test, then only import a subset of data. This is for
-            debugging on my local machine.
-
-        test_size<float> : Determine the train/test split to be
-            used when training the model.
-
-        Outputs:
-        -----------
-        train_data<array> : an array of the train data
-        test_data<array> : an array of the test data
-
-        A data loader for handling tweets in the desired format.
-        """
-        self.debug = debug
-
-        if debug==True:
-            self.path = '../data/san_francisco/2018-02.csv'
-        else:
-            self.path = 'undefined'
-
-        # Define
-        self.test_size = 0.2
-        self.count_vectorizer = CountVectorizer(stop_words='english',
-                                                min_df=min_df, max_df=max_df)
-        self.agg_count = agg_count
-
-    def get_tweet_count_vecs(self):
-        """
-        This function loads the tweet data and converts it into a count vector.
-        """
-
-
-        # Load the data
-        # Retrieve the file
-        data = pd.read_csv(self.path)
-
-        # If debug, only keep the first 100 tweets
-        if(self.debug):
-            data = data.iloc[0:10000]
-
-        data = self.preprocess(data)
-
-        X_train, X_test = train_test_split(data,
-                                           test_size=self.test_size,
-                                           random_state=42)
-
-        # Apply count vectorizer
-        self.X_train = self.count_vectorizer.fit_transform(X_train)
-        self.X_test = self.count_vectorizer.transform(X_test)
-
-        # Return the train/test count vectors
-        return self.X_train, self.X_test
-
-    def get_vocab_size(self):
-        return self.X_train.shape[1]
-
-    def preprocess(self, data):
-        tt = TweetTokenizer()
-        nlp = spacy.load('en_core_web_sm', disable=['parser', 'ner'])
-        lemmatized = []
-        for tweet in data['text']:
-            t = tweet.lower()
-            t = tt.tokenize(t)
-            # Removes hashtags and @s
-            t = [w for w in t if w.isalpha()]
-            doc = nlp(" ".join(t))
-            lemmatized.append(" ".join([token.lemma_ for token in doc]))
-
-        return lemmatized
-
-    def to_tensor_dataset(self):
-        x_train = TensorDataset(torch.Tensor(self.X_train.todense()))
-        x_test = TensorDataset(torch.Tensor(self.X_test.todense()))
-        return x_train, x_test
-
-    def get_count_vec(self):
-        return self.count_vectorizer
-
-    def inverse_transform_count_vec(self, count_vec):
-        # TODO - make this handle the CSR data format.
-        # if(type(count_vec) == torch.utils.data.dataset.TensorDataset):
-        return self.count_vectorizer.inverse_transform(count_vec)
-
-    EPSILON = 1e-8
 
 
 class VAE(nn.Module):
@@ -366,24 +303,42 @@ class VAE(nn.Module):
 
         return s @ W
 
-if (__name__ == "__main__"):
+def cached(path, doc_type):
+    """
+    This function looks for the path in the list of cached
+    objects and returns true if the line exists."""
+    files = os.listdir(path)
+    if 'cached' in files:
+        cached_files = os.listdir(path+'cached/')
+        if doc_type in cached_files:
+            return True
+    return False
+
+def load_cached(path, doc_type):
+    """This function loads cached data, assuming
+       it exists. This data is return as it was
+       saved in the file."""
+    return joblib.load(path+'cached/'+doc_type)
+
+
+if __name__ == "__main__":
     print("Begin testing")
 
     # Set up the tweets module
     tweets = Tweets('../data/test/')
 
     # Load the train and test data
+    print("Loading the training and test data.")
     x_train = tweets.load(test=False)
     x_test = tweets.load(test=True)
 
 
     # Testing below this line soon...
-    break
-    train_loader = DataLoader(x_train, batch_size=10, shuffle=True)
-    test_loader = DataLoader(x_test, batch_size=10, shuffle=False)
+    # train_loader = DataLoader(x_train, batch_size=10, shuffle=True)
+    # test_loader = DataLoader(x_test, batch_size=10, shuffle=False)
 
     # Initialize model
-    model = VAE(tweets.vocab_size)
+    # model = VAE(tweets.vocab_size)
     # Train model
 
     # Test model
