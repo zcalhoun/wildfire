@@ -7,6 +7,7 @@ from datetime import datetime
 import pandas as pd
 import torch
 import joblib
+import numpy as np
 
 from torch import nn, optim
 from torch.nn import functional as F
@@ -65,18 +66,21 @@ class Tweets():
 
         # TODO - remove this in the future!
         if DEBUG:
-            tweets = tweets.head(1000)
+            tweets = tweets.head(10000)
         # Perform some preprocessing as an intermediate step
         # This is a very expensive line of code (takes a long time
         # and I am going to cache the results to use between runs.
         if cached(path, 'lemmatized.joblib'):
-            print("Cached file was found...loading lemmatized tweets" + \
-                "from the cache.")
+            print("Cached file was found...loading lemmatized tweets" +
+                  " from the cache.")
 
             tweets['clean_tweets'] = load_cached(path, 'lemmatized.joblib')
         else:
             print("No cache found...loading now")
             tweets['clean_tweets'] = self._preprocess(tweets)
+
+        tweets['date'] = [datetime.strptime(d,'%Y-%m-%d %H:%M:%S').date() for d in
+                    tweets['created_at']]
 
         # Create the count vector to process the tweets
         print("Creating the count vector")
@@ -90,10 +94,19 @@ class Tweets():
         else:
             self.x = tweets
 
-        self.x['count_vec'] = self.count_vec.fit_transform(self.x['clean_tweets'])
+        # Create the count vectors
+        x_cv = self.count_vec.fit_transform(self.x['clean_tweets'])
+        # Remove unnecessary information and insert the count vector
+        # into the x array
+        self.x = np.array(list(zip(self.x['date'], x_cv)))
+
+        # Save the cached count vector for future comparison
+        save_to_cache(self.path, self.count_vec, 'count_vec.joblib')
 
         if test_size > 0:
-            self.x_test['count_vec'] = self.count_vec.transform(self.x_test['clean_tweets'])
+            x_test_cv = self.count_vec.transform(self.x_test['clean_tweets'])
+            self.x_test = np.array(list(zip(self.x_test['date'],
+                                   x_test_cv)))
 
         self.agg_count = agg_count
         self.sample_rate = sample_rate
@@ -146,7 +159,8 @@ class Tweets():
     def load(self, test=False):
         """ This function handles loading the data from the count vector data."""
         if test:
-            return TweetDataset(self.x_test)
+            return TweetDataset(self.x_test, agg_count=self.agg_count,
+                    sample_rate=self.sample_rate)
 
         return TweetDataset(self.x)
 
@@ -155,21 +169,18 @@ class TweetDataset(Dataset):
     """This class converts the pandas dataframe into a tensor
        that will be loaded into the VAE"""
 
-    def __init__(self, df, agg_count=1000, sample_rate=5):
+    def __init__(self, df, agg_count=1000, sample_rate=5, random_state=42):
         """
            Inputs:
                df - the dataframe object with the "count_vec" column and the date column.
                acc_count - the number of tweets to aggregate by
                sample_rate - the number of times to sample each day
         """
-        # Set up the passed dataframe to ensure its dates are correct.
-        df['date'] = [datetime.strptime(d,'%Y-%m-%d %H:%M:%S').date() for d in
-                    df['created_at']]
-
         # Define the objects used in the two functions below
-        self.dates = list(set(df['date']))
+        self.dates = list(set(df[:, 0]))
         self.agg_count = agg_count
         self.sample_rate = sample_rate
+        self.generator = np.random.default_rng(seed=random_state)
         self.df = df
 
     def __len__(self):
@@ -185,14 +196,19 @@ class TweetDataset(Dataset):
         """
         # Select the date
         date = self.dates[idx % len(self.dates)]
-
+        print(date)
         # Randomly sample from this date.
         #  1. Only look at count_vecs on this date.
         #  2. Sample agg_count number of tweets, sum the count vectors,
         #     and return.
-        count_vecs = self.df[self.df['date'] == date]['count_vec']
-        return torch.from_numpy(count_vecs.sample(self.agg_count).sum())
 
+        count_vecs = self.df[np.where(self.df[:, 0] == date)][:, 1]
+
+        # Sample using the generator
+        sample = self.generator.choice(count_vecs, self.agg_count, replace=False)
+
+        # Return the numpy array, summed along its axis.
+        return sample.sum().toarray()
 
 class VAE(nn.Module):
     """
@@ -208,7 +224,7 @@ class VAE(nn.Module):
         This model only has the variational layer, then the output
         to the reconstruction. At this point, there are no hidden layers.
         """
-        super(VAE, self).__init__()
+        super().__init__()
         self.num_components = num_components
 
         self.prior_mean = prior_mean
@@ -260,14 +276,23 @@ class VAE(nn.Module):
         # https://stanford.edu/~jduchi/projects/general_notes.pdf
         # Assume diagonal matrices for variance
         KLD = -0.5 * torch.sum(1 + logvar - torch.log(torch.Tensor(self.prior_var))
-            - self.prior_var*((self.prior_mean-mu).pow(2) - logvar.exp()))
+            - self.prior_var*((self.prior_mean-mean).pow(2) - logvar.exp()))
 
         return KLD
 
     def loss_function(self, recon_x, x, mu, logvar):
         KLD = self._kl_divergence(mu, logvar)
         PNLL = self.pois_nll(x, recon_x)
+
+        print("Poisson loss: ", PNLL)
+        print("KLD: ", KLD)
         return torch.mean(PNLL + KLD)
+
+    @torch.no_grad()
+    def reconstruct(self, X):
+        s, W, mu, logvar = self.forward(X)
+
+        return s @ W
 
     def fit(self, X, n_epochs=20, lr=1e-3, print_rate=10):
         """
@@ -282,8 +307,8 @@ class VAE(nn.Module):
                 self.train()
                 optimizer.zero_grad()
                 s, W, mu, logvar = self.forward(data)
-                with torch.no_grad():
-                    recon_batch = s @ W # Calculate the reconstructed matrix
+                # jwith torch.no_grad():
+                recon_batch = s @ W # Calculate the reconstructed matrix
                 loss = self.loss_function(recon_batch, data, mu, logvar)
                 loss.backward()
                 epoch_train_loss += loss.item()
@@ -294,7 +319,7 @@ class VAE(nn.Module):
                         100. * batch_idx / len(train_loader),
                         loss.item() / len(data)))
             print('===> Epoch: {} Average Loss: {:.4f}'.format(
-                epoch, train_loss / len(train_loader.dataset)
+                epoch, epoch_train_loss / len(train_loader.dataset)
             ))
 
     @torch.no_grad()
@@ -320,25 +345,23 @@ def load_cached(path, doc_type):
        saved in the file."""
     return joblib.load(path+'cached/'+doc_type)
 
+def save_to_cache(path, doc, file_name):
+    """This saves a document to the a cache"""
+    joblib.dump(doc, path+'cached/'+file_name)
 
 if __name__ == "__main__":
     print("Begin testing")
 
     # Set up the tweets module
-    tweets = Tweets('../data/test/')
+    tweets = Tweets('../data/test/', agg_count=100, sample_rate=40)
 
     # Load the train and test data
     print("Loading the training and test data.")
     x_train = tweets.load(test=False)
     x_test = tweets.load(test=True)
-
-
-    # Testing below this line soon...
-    # train_loader = DataLoader(x_train, batch_size=10, shuffle=True)
-    # test_loader = DataLoader(x_test, batch_size=10, shuffle=False)
-
+    print(type(x_train))
     # Initialize model
-    # model = VAE(tweets.vocab_size)
+    model = VAE(tweets.vocab_size)
     # Train model
-
+    model.fit(x_train)
     # Test model
