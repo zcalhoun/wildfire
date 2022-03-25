@@ -79,7 +79,7 @@ class Tweets():
             print("No cache found...loading now")
             tweets['clean_tweets'] = self._preprocess(tweets)
 
-        tweets['date'] = [datetime.strptime(d,'%Y-%m-%d %H:%M:%S').date() for d in
+        tweets['date'] = [datetime.strptime(d, '%Y-%m-%d %H:%M:%S').date() for d in
                     tweets['created_at']]
 
         # Create the count vector to process the tweets
@@ -162,7 +162,7 @@ class Tweets():
             return TweetDataset(self.x_test, agg_count=self.agg_count,
                     sample_rate=self.sample_rate)
 
-        return TweetDataset(self.x)
+        return TweetDataset(self.x, sample_rate=self.sample_rate)
 
 
 class TweetDataset(Dataset):
@@ -196,7 +196,6 @@ class TweetDataset(Dataset):
         """
         # Select the date
         date = self.dates[idx % len(self.dates)]
-        print(date)
         # Randomly sample from this date.
         #  1. Only look at count_vecs on this date.
         #  2. Sample agg_count number of tweets, sum the count vectors,
@@ -208,7 +207,8 @@ class TweetDataset(Dataset):
         sample = self.generator.choice(count_vecs, self.agg_count, replace=False)
 
         # Return the numpy array, summed along its axis.
-        return sample.sum().toarray()
+        return torch.from_numpy(sample.sum().toarray()).float()
+
 
 class VAE(nn.Module):
     """
@@ -232,8 +232,8 @@ class VAE(nn.Module):
 
         self.enc_mu = nn.Linear(vocab, num_components, bias=False)
         self.enc_logvar = nn.Linear(vocab, num_components, bias=False)
-        self.W_tilde = torch.rand(num_components, vocab)
-        self.pois_nll = nn.PoissonNLLLoss()
+        self.W_tilde = torch.rand(num_components, vocab, requires_grad=True)
+        self.pois_nll = nn.PoissonNLLLoss(log_input=False)
         self.softplus = nn.Softplus()
 
     def reparameterize(self, mu, logvar):
@@ -276,17 +276,17 @@ class VAE(nn.Module):
         # https://stanford.edu/~jduchi/projects/general_notes.pdf
         # Assume diagonal matrices for variance
         KLD = -0.5 * torch.sum(1 + logvar - torch.log(torch.Tensor(self.prior_var))
-            - self.prior_var*((self.prior_mean-mean).pow(2) - logvar.exp()))
+                      - self.prior_var*((self.prior_mean-mean).pow(2) - logvar.exp()))
 
         return KLD
 
     def loss_function(self, recon_x, x, mu, logvar):
-        KLD = self._kl_divergence(mu, logvar)
-        PNLL = self.pois_nll(x, recon_x)
+        # KLD = self._kl_divergence(mu, logvar)
+        PNLL = self.pois_nll(recon_x, x)
 
         print("Poisson loss: ", PNLL)
-        print("KLD: ", KLD)
-        return torch.mean(PNLL + KLD)
+        # print("KLD: ", KLD)
+        return torch.mean(PNLL)  #+ KLD)
 
     @torch.no_grad()
     def reconstruct(self, X):
@@ -294,39 +294,6 @@ class VAE(nn.Module):
 
         return s @ W
 
-    def fit(self, X, n_epochs=20, lr=1e-3, print_rate=10):
-        """
-        Fit the model to the data, X. Assume X is in count vector format as a tensor.
-        """
-        train_loader = DataLoader(X, batch_size=128)
-        optimizer = optim.Adam(self.parameters(), lr=lr)
-        for epoch in range(n_epochs):
-            epoch_train_loss = 0
-            epoch_test_loss = 0
-            for batch_idx, data in enumerate(train_loader):
-                self.train()
-                optimizer.zero_grad()
-                s, W, mu, logvar = self.forward(data)
-                # jwith torch.no_grad():
-                recon_batch = s @ W # Calculate the reconstructed matrix
-                loss = self.loss_function(recon_batch, data, mu, logvar)
-                loss.backward()
-                epoch_train_loss += loss.item()
-                optimizer.step()
-                if batch_idx % print_rate == 0:
-                    print('Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        epoch, batch_idx * len(data), len(train_loader.dataset),
-                        100. * batch_idx / len(train_loader),
-                        loss.item() / len(data)))
-            print('===> Epoch: {} Average Loss: {:.4f}'.format(
-                epoch, epoch_train_loss / len(train_loader.dataset)
-            ))
-
-    @torch.no_grad()
-    def reconstruct(self, X):
-        s, W, mu, logvar = self.forward(X)
-
-        return s @ W
 
 def cached(path, doc_type):
     """
@@ -339,29 +306,95 @@ def cached(path, doc_type):
             return True
     return False
 
+
 def load_cached(path, doc_type):
     """This function loads cached data, assuming
        it exists. This data is return as it was
        saved in the file."""
     return joblib.load(path+'cached/'+doc_type)
 
+
 def save_to_cache(path, doc, file_name):
     """This saves a document to the a cache"""
     joblib.dump(doc, path+'cached/'+file_name)
 
+
 if __name__ == "__main__":
     print("Begin testing")
 
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+
     # Set up the tweets module
-    tweets = Tweets('../data/test/', agg_count=100, sample_rate=40)
+    tweets = Tweets('../data/test/', agg_count=1000, sample_rate=10)
 
     # Load the train and test data
     print("Loading the training and test data.")
     x_train = tweets.load(test=False)
     x_test = tweets.load(test=True)
-    print(type(x_train))
-    # Initialize model
+
+    train_loader = DataLoader(x_train, batch_size=128)
+    test_loader = DataLoader(x_test, batch_size=128)
+
     model = VAE(tweets.vocab_size)
-    # Train model
-    model.fit(x_train)
-    # Test model
+
+    model.to(device)
+
+    EPOCHS = 20
+    print_rate = 10
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    # Run training and testing on the model.
+    loss = {
+            "train": [],
+            "val": []
+            }
+    for epoch in range(EPOCHS):
+        epoch_train_loss = 0
+        epoch_test_loss = 0
+
+        # Run method on training
+        model.train()
+        for batch_idx, data in enumerate(train_loader):
+            # Add training data to GPU
+            data.to(device)
+            optimizer.zero_grad()
+            s, W, mu, logvar = model(data)
+            recon_batch = s @ W  # Calculate the reconstructed matrix
+            loss = model.loss_function(recon_batch, data, mu, logvar)
+            loss.backward()
+            epoch_train_loss += loss.item()
+            optimizer.step()
+            if batch_idx % print_rate == 0:
+                print('Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    epoch, batch_idx * len(data), len(train_loader.dataset),
+                    100. * batch_idx / len(train_loader),
+                    loss.item() / len(data)))
+        print('===> Epoch: {} Average Loss: {:.4f}'.format(
+            epoch, epoch_train_loss / len(train_loader.dataset)
+        ))
+        loss['train'].append(epoch_train_loss)
+
+        # Capture testing performance.
+        model.eval()
+        with torch.no_grad():
+            for batch_idx, data in enumerate(test_loader):
+                # Add to GPU
+                data = data.to(device)
+                s, W, mu, logvar = model(data)
+                recon_batch = s @ W
+                loss = model.loss_function(recon_batch, data, mu, logvar)
+                epoch_test_loss += loss.item()
+
+        epoch_test_loss /= len(test_loader.dataset)
+        print('=====> Test set loss: {:.4f}'.format(epoch_test_loss))
+
+        loss['val'].append(epoch_test_loss)
+
+    torch.save({
+        "model": VAE(tweets.vocab_size),
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict()
+        }, './model/model.pth')
+
+    joblib.dump(loss, './model/training.z')
