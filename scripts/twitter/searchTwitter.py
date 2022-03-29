@@ -9,6 +9,8 @@ from datetime import datetime
 from collections import defaultdict, namedtuple
 import requests
 import pandas as pd
+import numpy as np
+from math import ceil
 
 class TwitterDataFrame(pd.DataFrame):
     """
@@ -51,6 +53,31 @@ class TwitterDataFrame(pd.DataFrame):
         if("date" not in self.columns):
             self['date'] = [d.date() for d in self['created_at']]
         pseudo_docs = pd.pivot_table(self,values="text",index="date",aggfunc=" ".join)
+        return pseudo_docs
+
+    def group_by_days_and_batch(self, batch_size, freq=1, shuffle=True):
+        """
+        This function agreggates tweets by freq days into batches of batch_size and shuffles.
+        """
+        if("date" not in self.columns):
+            self['date'] = [d.date() for d in self['created_at']]
+
+        # Groupby frequency and concat tweets as np array
+        pseudo_docs = self.groupby(pd.Grouper(key='date', freq=str(freq)+'D'))['text'].apply(np.array).to_frame().reset_index()
+        
+        # Shuffle tweets so each batch contains tweets from each day
+        if shuffle:
+            pseudo_docs.text.apply(np.random.shuffle)
+
+        # Split tweet list into lists of batch_size length tweet lists
+        pseudo_docs.text = pseudo_docs.text.apply(lambda row: np.array_split(row, ceil(len(row)/batch_size)))
+        
+        # Break tweet list into rows of lists
+        pseudo_docs = pseudo_docs.explode('text').reset_index(drop=True)
+
+        # Concat tweet list into long string
+        pseudo_docs.text = pseudo_docs.text.apply(" ".join)
+
         return pseudo_docs
         
     def zoom_in(self, lat, lon):
