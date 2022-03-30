@@ -20,16 +20,13 @@ from sklearn.feature_extraction.text import CountVectorizer
 import spacy
 from nltk.tokenize import TweetTokenizer
 
-# This flag is set while I'm testing out this code.
-DEBUG=True
-
 class Tweets():
     """Tweets class. This class handles the data and preprocesses
     so that the data can be loaded easily into whatever format
     is needed.
     """
     def __init__(self, path, agg_count=1000, sample_rate=5,
-                 verbose=False, min_df=0.01, max_df=0.1, test_size=0.2,
+                 verbose=False, min_df=100, max_df=0.1, test_size=0.2,
                  random_state=42):
         """
         Input:
@@ -64,9 +61,8 @@ class Tweets():
         print("Loading in the data...")
         tweets = self._load_data()
 
-        # TODO - remove this in the future!
-        if DEBUG:
-            tweets = tweets.head(10000)
+        # Remove values without date or tweet
+        tweets = tweets.dropna()
         # Perform some preprocessing as an intermediate step
         # This is a very expensive line of code (takes a long time
         # and I am going to cache the results to use between runs.
@@ -204,7 +200,7 @@ class TweetDataset(Dataset):
         count_vecs = self.df[np.where(self.df[:, 0] == date)][:, 1]
 
         # Sample using the generator
-        sample = self.generator.choice(count_vecs, self.agg_count, replace=False)
+        sample = self.generator.choice(count_vecs, self.agg_count, replace=True)
 
         # Return the numpy array, summed along its axis.
         return torch.from_numpy(sample.sum().toarray()).float()
@@ -284,8 +280,6 @@ class VAE(nn.Module):
         # KLD = self._kl_divergence(mu, logvar)
         PNLL = self.pois_nll(recon_x, x)
 
-        print("Poisson loss: ", PNLL)
-        # print("KLD: ", KLD)
         return torch.mean(PNLL)  #+ KLD)
 
     @torch.no_grad()
@@ -327,7 +321,7 @@ if __name__ == "__main__":
         device = torch.device("cuda")
 
     # Set up the tweets module
-    tweets = Tweets('../data/test/', agg_count=1000, sample_rate=10)
+    tweets = Tweets('../data/san_francisco/', agg_count=1000, sample_rate=20)
 
     # Load the train and test data
     print("Loading the training and test data.")
@@ -341,7 +335,7 @@ if __name__ == "__main__":
 
     model.to(device)
 
-    EPOCHS = 20
+    EPOCHS = 3
     print_rate = 10
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     # Run training and testing on the model.
@@ -357,10 +351,15 @@ if __name__ == "__main__":
         model.train()
         for batch_idx, data in enumerate(train_loader):
             # Add training data to GPU
-            data.to(device)
+            data = data.to(device)
             optimizer.zero_grad()
             s, W, mu, logvar = model(data)
+            s = s.to(device)
+            W = W.to(device)
             recon_batch = s @ W  # Calculate the reconstructed matrix
+            recon_batch = recon_batch.to(device)
+            mu = mu.to(device)
+            logvar = logvar.to(device)
             loss = model.loss_function(recon_batch, data, mu, logvar)
             loss.backward()
             epoch_train_loss += loss.item()
@@ -373,7 +372,7 @@ if __name__ == "__main__":
         print('===> Epoch: {} Average Loss: {:.4f}'.format(
             epoch, epoch_train_loss / len(train_loader.dataset)
         ))
-        loss['train'].append(epoch_train_loss)
+        # loss['train'].append(epoch_train_loss)
 
         # Capture testing performance.
         model.eval()
@@ -389,12 +388,7 @@ if __name__ == "__main__":
         epoch_test_loss /= len(test_loader.dataset)
         print('=====> Test set loss: {:.4f}'.format(epoch_test_loss))
 
-        loss['val'].append(epoch_test_loss)
+        # loss['val'].append(epoch_test_loss)
 
-    torch.save({
-        "model": VAE(tweets.vocab_size),
-        "state_dict": model.state_dict(),
-        "optimizer": optimizer.state_dict()
-        }, './model/model.pth')
+    torch.save(model.state_dict(), './model/model_3epoch.pt')
 
-    joblib.dump(loss, './model/training.z')
