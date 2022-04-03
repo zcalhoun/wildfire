@@ -128,7 +128,7 @@ class TwitterSearchTerm():
         ## Create get request
         try:
             response = requests.get("https://api.twitter.com/2/tweets/counts/all", params=payload, headers=self.create_header())
-        except exception as e:
+        except Exception as e:
             print("=========================")
             print("An error occurred with the request.")
             print(response['text'])
@@ -164,8 +164,7 @@ class TwitterSearchTerm():
 
         # Print out total tweets counted for query
         print("===========================================")    
-        print("Total tweets for query", self.queryString,":")
-        print(total_tweets)
+        print("Total tweets", total_tweets, "for query", self.queryString)
         print("===========================================")
 
         df = pd.concat(frames)
