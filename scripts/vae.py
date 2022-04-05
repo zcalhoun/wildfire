@@ -20,6 +20,10 @@ from sklearn.feature_extraction.text import CountVectorizer
 import spacy
 from nltk.tokenize import TweetTokenizer
 
+
+AQI_PATH = '../data/daily_aqi_by_county_2018.csv'
+TWEET_PATH = '../data/test/'
+
 class Tweets():
     """Tweets class. This class handles the data and preprocesses
     so that the data can be loaded easily into whatever format
@@ -179,6 +183,9 @@ class TweetDataset(Dataset):
         self.generator = np.random.default_rng(seed=random_state)
         self.df = df
 
+		# Added to support looking up aqi
+        self.aqi = load_aqi()
+
     def __len__(self):
         """Return the length of the dataset"""
         return len(self.dates)*self.sample_rate
@@ -200,93 +207,115 @@ class TweetDataset(Dataset):
         count_vecs = self.df[np.where(self.df[:, 0] == date)][:, 1]
 
         # Sample using the generator
-        sample = self.generator.choice(count_vecs, self.agg_count, replace=True)
+        sample = self.generator.choice(count_vecs, self.agg_count, replace = True)
 
+		# Load the aqi to return
         # Return the numpy array, summed along its axis.
-        return torch.from_numpy(sample.sum().toarray()).float().requires_grad_(False)
+        return (torch.from_numpy(sample.sum().toarray()).float().requires_grad_(False),
+				torch.tensor(self.aqi.get(date)))
+
+def load_aqi():
+	"""
+	This function returns a dictionary containing AQI with the 
+	date object as the keys.
+	"""
+	df = pd.read_csv(AQI_PATH)
+
+	df = df[(df['State Name'] == 'California') & (df['county Name'] == 'San Francisco')][['Date', 'AQI']]
+
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d').apply(datetime.date)
+
+    df['AQI'] = np.log10(df['AQI'])
+
+    return df.set_index('Date').to_dict().get('AQI')
 
 
 class VAE(nn.Module):
-    """
-    Should rename -- PFA for Poisson Factor Analysis
-    """
+	"""
+	Should rename -- PFA for Poisson Factor Analysis
+	"""
 
-    def __init__(self, vocab, num_components=20, prior_mean=0, prior_var=1):
-        """
-        Inputs
-        --------
-        vocab<int>: the size of the vocabulary
+	def __init__(self, vocab, num_components=20, prior_mean=0, prior_var=1):
+		"""
+		Inputs
+		--------
+		vocab<int>: the size of the vocabulary
 
-        This model only has the variational layer, then the output
-        to the reconstruction. At this point, there are no hidden layers.
-        """
-        super().__init__()
-        self.num_components = num_components
+		This model only has the variational layer, then the output
+		to the reconstruction. At this point, there are no hidden layers.
+		"""
+		super().__init__()
+		self.num_components = num_components
 
-        self.prior_mean = prior_mean
-        self.prior_var = prior_var
+		self.prior_mean = prior_mean
+		self.prior_var = prior_var
 
-        self.enc_mu = nn.Linear(vocab, num_components, bias=False)
-        self.enc_logvar = nn.Linear(vocab, num_components, bias=False)
-        self.W_tilde = torch.rand(num_components, vocab, requires_grad=True)
-        self.pois_nll = nn.PoissonNLLLoss(log_input=False)
-        self.softplus = nn.Softplus()
+		self.enc_logvar = nn.Linear(vocab, num_components, bias = False)
+		self.enc_mu = nn.Linear(vocab, num_components, bias = False)
+		self.W_tilde = torch.rand(num_components, vocab, requires_grad=True)
+		self.pois_nll = nn.PoissonNLLLoss(log_input = False)
+		self.softplus = nn.Softplus()
 
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
+		self.beta = nn.Linear(1, 1, bias = True)
 
-    def forward(self, x):
-        mu = self.enc_mu(x)
-        logvar = self.enc_logvar(x)
+	def reparameterize(self, mu, logvar):
+		std = torch.exp(0.5*logvar)
+		eps = torch.randn_like(std)
+		return mu + eps*std
 
-        s_tilde = self.reparameterize(mu, logvar)
+	def forward(self, x):
+		mu = self.enc_mu(x)
+		logvar = self.enc_logvar(x)
 
-        s = self.softplus(s_tilde)
-        W = self.softplus(self.W_tilde)
+		s_tilde = self.reparameterize(mu, logvar)
 
-        return s, W, mu, logvar
+		s = self.softplus(s_tilde)
+		W = self.softplus(self.W_tilde)
 
-    def get_topic_dist(self, x):
-        """
-        When it comes to looking at the norm, we want to calculate the
-        probability that a certain sample belongs to each topic.
-        """
-        s, _ = self.encode(x)
-        W = self.parameters()  # TODO - figure out which parameters to add.
-        norm = torch.norm(s @ W, p=1)  # Return the L1 norm
-        # TODO -- add in the multinomial distribution.
+		# Predict y using the first node from s
+		y_hat = self.beta(s[:, :, 1])
 
-        # TODO - need to calculate elementwise product.
-        return s @ W / norm
+		return s, W, mu, logvar, y_hat
 
-    def _kl_divergence(self, mean, logvar):
-        # see Appendix B from VAE paper:
-        # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-        # https://arxiv.org/abs/1312.6114
-        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        # BUT...
-        # Code extended to handle a more informative prior
-        # Referencing this derivation found here:
-        # https://stanford.edu/~jduchi/projects/general_notes.pdf
-        # Assume diagonal matrices for variance
-        KLD = -0.5 * torch.sum(1 + logvar - torch.log(torch.Tensor(self.prior_var))
-                      - self.prior_var*((self.prior_mean-mean).pow(2) - logvar.exp()))
+	def get_topic_dist(self, x):
+		"""
+		When it comes to looking at the norm, we want to calculate the
+		probability that a certain sample belongs to each topic.
+		"""
+		s, _ = self.encode(x)
+		W = self.parameters()  # TODO - figure out which parameters to add.
+		norm = torch.norm(s @ W, p=1)  # Return the L1 norm
+		# TODO -- add in the multinomial distribution.
 
-        return KLD
+		# TODO - need to calculate elementwise product.
+		return s @ W / norm
 
-    def loss_function(self, recon_x, x, mu, logvar):
-        # KLD = self._kl_divergence(mu, logvar)
-        PNLL = self.pois_nll(recon_x, x)
+	def _kl_divergence(self, mean, logvar):
+		# see Appendix B from VAE paper:
+		# Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+		# https://arxiv.org/abs/1312.6114
+		# 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+		# BUT...
+		# Code extended to handle a more informative prior
+		# Referencing this derivation found here:
+		# https://stanford.edu/~jduchi/projects/general_notes.pdf
+		# Assume diagonal matrices for variance
+		KLD = -0.5 * torch.sum(1 + logvar - torch.log(torch.Tensor(self.prior_var))
+						- self.prior_var*((self.prior_mean-mean).pow(2) - logvar.exp()))
 
-        return torch.mean(PNLL)  #+ KLD)
+		return KLD
 
-    @torch.no_grad()
-    def reconstruct(self, X):
-        s, W, mu, logvar = self.forward(X)
+	def loss_function(self, recon_x, x, mu, logvar, y, y_hat):
+		# KLD = self._kl_divergence(mu, logvar)
+		PNLL = self.pois_nll(recon_x, x)
+		MSE = F.mse_loss(y_hat, y)
+		return torch.mean(PNLL + MSE)  #+ KLD)
 
-        return s @ W
+	@torch.no_grad()
+	def reconstruct(self, X):
+		s, W, mu, logvar = self.forward(X)
+
+		return s @ W
 
 
 def cached(path, doc_type):
@@ -314,81 +343,89 @@ def save_to_cache(path, doc, file_name):
 
 
 if __name__ == "__main__":
-    print("Begin testing")
+	print("Begin testing")
 
-    device = "cpu"
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
+	device = "cpu"
+	if torch.cuda.is_available():
+		device = torch.device("cuda")
 
-    # Set up the tweets module
-    tweets = Tweets('../data/san_francisco/', agg_count=1000, sample_rate=20)
+	# Set up the tweets module
+	tweets = Tweets(TWEET_PATH, max_df=0.01, agg_count=1000, sample_rate=5)
 
-    # Load the train and test data
-    print("Loading the training and test data.")
-    x_train = tweets.load(test=False)
-    x_test = tweets.load(test=True)
+	# Load the train and test data
+	print("Loading the training and test data.")
+	x_train = tweets.load(test=False)
+	x_test = tweets.load(test=True)
 
-    train_loader = DataLoader(x_train, batch_size=128)
-    test_loader = DataLoader(x_test, batch_size=128)
+	train_loader = DataLoader(x_train, batch_size=128)
+	test_loader = DataLoader(x_test, batch_size=128)
 
-    model = VAE(tweets.vocab_size)
+	model = VAE(tweets.vocab_size, num_components=50)
 
-    model.to(device)
+	model.to(device)
 
-    EPOCHS = 3
-    print_rate = 10
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    # Run training and testing on the model.
-    loss = {
-            "train": [],
-            "val": []
-            }
-    for epoch in range(EPOCHS):
-        epoch_train_loss = 0
-        epoch_test_loss = 0
+	EPOCHS = 10
+	print_rate = 10
+	optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-        # Run method on training
-        model.train()
-        for batch_idx, data in enumerate(train_loader):
-            # Add training data to GPU
-            data = data.to(device)
-            optimizer.zero_grad()
-            s, W, mu, logvar = model(data)
-            s = s.to(device)
-            W = W.to(device)
-            recon_batch = s @ W  # Calculate the reconstructed matrix
-            recon_batch = recon_batch.to(device)
-            mu = mu.to(device)
-            logvar = logvar.to(device)
-            loss = model.loss_function(recon_batch, data, mu, logvar)
-            loss.backward()
-            epoch_train_loss += loss.item()
-            optimizer.step()
-            if batch_idx % print_rate == 0:
-                print('Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader),
-                    loss.item() / len(data)))
-        print('===> Epoch: {} Average Loss: {:.4f}'.format(
-            epoch, epoch_train_loss / len(train_loader.dataset)
+	# Run training and testing on the model.
+	loss = {
+			"train": [],
+			"val": []
+			}
+	for epoch in range(EPOCHS):
+		epoch_train_loss = 0
+		epoch_test_loss = 0
+		# Run method on training
+		model.train()
+		for batch_idx, (data, y) in enumerate(train_loader):
+			# Add training data to GPU
+			data = data.to(device)
+			y = y.to(device)
+			optimizer.zero_grad()
+			s, W, mu, logvar, y_hat = model(data)
+			s = s.to(device)
+			W = W.to(device)
+			y_hat = y_hat.to(device)
+			recon_batch = s @ W  # Calculate the reconstructed matrix
+			recon_batch = recon_batch.to(device)
+			mu = mu.to(device)
+			logvar = logvar.to(device)
+			loss = model.loss_function(recon_batch, data, mu, logvar, y, y_hat)
+			loss.backward()
+			epoch_train_loss += loss.item()
+			optimizer.step()
+			if batch_idx % print_rate == 0:
+				print('Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+					epoch, batch_idx * len(data), len(train_loader.dataset),
+					100. * batch_idx / len(train_loader),
+											loss.item() / len(data)))
+		print('===> Epoch: {} Average Loss: {:.4f}'.format(
+			epoch, epoch_train_loss / len(train_loader.dataset)
         ))
         # loss['train'].append(epoch_train_loss)
 
         # Capture testing performance.
-        model.eval()
-        with torch.no_grad():
-            for batch_idx, data in enumerate(test_loader):
-                # Add to GPU
-                data = data.to(device)
-                s, W, mu, logvar = model(data)
-                recon_batch = s @ W
-                loss = model.loss_function(recon_batch, data, mu, logvar)
-                epoch_test_loss += loss.item()
+		model.eval()
+		frobenius_norms = []
+		with torch.no_grad():
+			for batch_idx, (data, y) in enumerate(test_loader):
+				# Add to GPU
+				data = data.to(device)
+				y = y.to(device)
+				s, W, mu, logvar, y_hat = model(data)
+				recon_batch = s @ W
+				loss = model.loss_function(recon_batch, data, mu, logvar, y, y_hat)
+				epoch_test_loss += loss.item()
 
-        epoch_test_loss /= len(test_loader.dataset)
-        print('=====> Test set loss: {:.4f}'.format(epoch_test_loss))
+				# Calculate frobenius norm of the reconstructed matrix
+				frobenius_norms.append(torch.norm(recon_batch - data, p='fro', dim = 2).mean().item())
 
-        # loss['val'].append(epoch_test_loss)
+		avg_f_norm = sum(frobenius_norms) / len(frobenius_norms)
+		epoch_test_loss /= len(test_loader.dataset)
+		print('=====> Test set loss: {:.4f}'.format(epoch_test_loss))
+		# Print frobenius norm
+		print('=====> Test set frobenius norm: {:.4f}'.format(avg_f_norm))
 
-    torch.save(model.state_dict(), './model/model_3epoch.pt')
+	torch.save(model.state_dict(), './model/model_3epoch.pt')
 
