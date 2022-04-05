@@ -203,7 +203,7 @@ class TweetDataset(Dataset):
         sample = self.generator.choice(count_vecs, self.agg_count, replace=True)
 
         # Return the numpy array, summed along its axis.
-        return torch.from_numpy(sample.sum().toarray()).float()
+        return torch.from_numpy(sample.sum().toarray()).float().requires_grad_(False)
 
 
 class VAE(nn.Module):
