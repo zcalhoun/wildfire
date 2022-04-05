@@ -65,11 +65,11 @@ class Tweets():
 		print("Loading in the data...")
 		tweets = self._load_data()
 
-        # Remove values without date or tweet
+		# Remove values without date or tweet
 		tweets = tweets.dropna()
-        # Perform some preprocessing as an intermediate step
-        # This is a very expensive line of code (takes a long time
-        # and I am going to cache the results to use between runs.
+		# Perform some preprocessing as an intermediate step
+		# This is a very expensive line of code (takes a long time
+		# and I am going to cache the results to use between runs.
 		if cached(path, 'lemmatized.joblib'):
 			print("Cached file was found...loading lemmatized tweets" +
 				" from the cache.")
@@ -78,34 +78,28 @@ class Tweets():
 			print("No cache found. Loading now")
 			tweets['clean_tweets'] = self._preprocess(tweets)
 
-			tweets['date'] = [datetime.strptime(d, '%Y-%m-%d %H:%M:%S').date() for d in
-                    tweets['created_at']]
+			tweets['date'] = [datetime.strptime(d, '%Y-%m-%d %H:%M:%S').date() for d in tweets['created_at']]
 
-        # Create the count vector to process the tweets
+		# Create the count vector to process the tweets
 		print("Creating the count vector")
-		self.count_vec = CountVectorizer(stop_words='english',
-                                         min_df=min_df,
-                                         max_df=max_df)
+		self.count_vec = CountVectorizer(stop_words='english', min_df=min_df, max_df=max_df)
 		if test_size > 0:
-            self.x, self.x_test = train_test_split(tweets,
-                                                   test_size=test_size,
-                                                   random_state=random_state)
+			self.x, self.x_test = train_test_split(tweets, test_size=test_size, random_state=random_state)
 		else:
-            self.x = tweets
+			self.x = tweets
 
-        # Create the count vectors
+		# Create the count vectors
 		x_cv = self.count_vec.fit_transform(self.x['clean_tweets'])
-        # Remove unnecessary information and insert the count vector
-        # into the x array
+		# Remove unnecessary information and insert the count vector
+		# into the x array
 		self.x = np.array(list(zip(self.x['date'], x_cv)))
 
-        # Save the cached count vector for future comparison
+		# Save the cached count vector for future comparison
 		save_to_cache(self.path, self.count_vec, 'count_vec.joblib')
 
 		if test_size > 0:
-            x_test_cv = self.count_vec.transform(self.x_test['clean_tweets'])
-            self.x_test = np.array(list(zip(self.x_test['date'],
-                                   x_test_cv)))
+			x_test_cv = self.count_vec.transform(self.x_test['clean_tweets'])
+			self.x_test = np.array(list(zip(self.x_test['date'], x_test_cv)))
 
 		self.agg_count = agg_count
 		self.sample_rate = sample_rate
@@ -113,22 +107,22 @@ class Tweets():
 		self.vocab_size = len(self.count_vec.get_feature_names_out())
 
 	def _load_data(self):
-        """
-        This function reads the files from the path
-        and returns a concatenated version of the data.
-        """
-        data_frame = []
-        # Load the data
-        files = os.listdir(self.path)
-        # If there is a cached file, then remove from
-        # the list
-        if 'cached' in files:
-            files.pop(files.index('cached'))
+		"""
+		This function reads the files from the path
+		and returns a concatenated version of the data.
+		"""
+		data_frame = []
+		# Load the data
+		files = os.listdir(self.path)
+		# If there is a cached file, then remove from
+		# the list
+		if 'cached' in files:
+			files.pop(files.index('cached'))
 
-        for file in files:
-            data_frame.append(pd.read_csv(self.path+file))
+		for file in files:
+			data_frame.append(pd.read_csv(self.path+file))
 
-        return pd.concat(data_frame)
+		return pd.concat(data_frame)
 
 	def _preprocess(self, tweets):
         """
@@ -320,27 +314,27 @@ class VAE(nn.Module):
 
 
 def cached(path, doc_type):
-    """
-    This function looks for the path in the list of cached
-    objects and returns true if the line exists."""
-    files = os.listdir(path)
-    if 'cached' in files:
-        cached_files = os.listdir(path+'cached/')
-        if doc_type in cached_files:
-            return True
-    return False
+	"""
+	This function looks for the path in the list of cached
+	objects and returns true if the line exists."""
+	files = os.listdir(path)
+	if 'cached' in files:
+		cached_files = os.listdir(path+'cached/')
+		if doc_type in cached_files:
+			return True
+	return False
 
 
 def load_cached(path, doc_type):
-    """This function loads cached data, assuming
-       it exists. This data is return as it was
-       saved in the file."""
-    return joblib.load(path+'cached/'+doc_type)
+	"""This function loads cached data, assuming
+		it exists. This data is return as it was
+		saved in the file."""
+	return joblib.load(path+'cached/'+doc_type)
 
 
 def save_to_cache(path, doc, file_name):
-    """This saves a document to the a cache"""
-    joblib.dump(doc, path+'cached/'+file_name)
+	"""This saves a document to the a cache"""
+	joblib.dump(doc, path+'cached/'+file_name)
 
 
 if __name__ == "__main__":
@@ -402,11 +396,10 @@ if __name__ == "__main__":
 					100. * batch_idx / len(train_loader),
 											loss.item() / len(data)))
 		print('===> Epoch: {} Average Loss: {:.4f}'.format(
-			epoch, epoch_train_loss / len(train_loader.dataset)
-        ))
-        # loss['train'].append(epoch_train_loss)
+			epoch, epoch_train_loss / len(train_loader.dataset)))
+		# loss['train'].append(epoch_train_loss)
 
-        # Capture testing performance.
+		# Capture testing performance.
 		model.eval()
 		frobenius_norms = []
 		with torch.no_grad():
