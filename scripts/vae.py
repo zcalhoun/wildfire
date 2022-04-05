@@ -21,8 +21,8 @@ import spacy
 from nltk.tokenize import TweetTokenizer
 
 
-AQI_PATH = "../data/daily_aqi_by_county_2018.csv"
-TWEET_PATH = "../data/test/"
+AQI_PATH = "../data/aqi_data/daily_aqi_by_county_2018.csv"
+TWEET_PATH = "../data/san_francisco/"
 
 
 class Tweets:
@@ -318,20 +318,17 @@ class VAE(nn.Module):
         # Referencing this derivation found here:
         # https://stanford.edu/~jduchi/projects/general_notes.pdf
         # Assume diagonal matrices for variance
-        KLD = -0.5 * torch.sum(
-            1
-            + logvar
-            - torch.log(torch.Tensor(self.prior_var))
-            - self.prior_var * ((self.prior_mean - mean).pow(2) - logvar.exp())
-        )
+        KLD = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
 
         return KLD
 
     def loss_function(self, recon_x, x, mu, logvar, y, y_hat):
-        # KLD = self._kl_divergence(mu, logvar)
+        KLD = self._kl_divergence(mu, logvar)
         PNLL = self.pois_nll(recon_x, x)
-        MSE = F.mse_loss(y_hat, y)
-        return torch.mean(PNLL + MSE)  # + KLD)
+        # This will disproportionately weight higher values of y
+        MSE = (y - y_hat).pow(10).mean()
+
+        return torch.mean(PNLL + MSE + KLD)
 
     @torch.no_grad()
     def reconstruct(self, X):
