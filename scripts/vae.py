@@ -25,95 +25,94 @@ AQI_PATH = '../data/daily_aqi_by_county_2018.csv'
 TWEET_PATH = '../data/test/'
 
 class Tweets():
-    """Tweets class. This class handles the data and preprocesses
-    so that the data can be loaded easily into whatever format
-    is needed.
-    """
-    def __init__(self, path, agg_count=1000, sample_rate=5,
-                 verbose=False, min_df=100, max_df=0.1, test_size=0.2,
-                 random_state=42):
-        """
-        Input:
-            path: directory of twitter files, unprocessed.
+	"""Tweets class. This class handles the data and preprocesses
+	so that the data can be loaded easily into whatever format
+	is needed.
+	"""
+	def __init__(self, path, agg_count=1000, sample_rate=5,
+				verbose=False, min_df=100, max_df=0.1, test_size=0.2,
+				random_state=42):
+		"""
+		Input:
+			path: directory of twitter files, unprocessed.
 
-            agg_count: the number of tweets to aggregate by.
+			agg_count: the number of tweets to aggregate by.
 
-            sample_rate: the number of total samples that we want
-            to get for each day.
+			sample_rate: the number of total samples that we want
+			to get for each day.
 
-            verbose: whether to print out steps of loading the data.
+			verbose: whether to print out steps of loading the data.
 
-            min_df: passed to the count_vec. This determines the amount
-                of tweets that the word must appear in to be included.
+			min_df: passed to the count_vec. This determines the amount
+				of tweets that the word must appear in to be included.
 
-            max_df: pass to the count_vec. This indicates the max
-                number of tweets that the word can occur in.
+			max_df: pass to the count_vec. This indicates the max
+				number of tweets that the word can occur in.
 
-            test_size: The percentage of tweets that are held out for
-                the test set.
+			test_size: The percentage of tweets that are held out for
+				the test set.
 
 
-        This class should build a count vector from the tweets themselves,
-        then store the tweets in an array that can be sampled from.
+		This class should build a count vector from the tweets themselves,
+		then store the tweets in an array that can be sampled from.
 
-        """
-        self.path = path
-        self.test_size = test_size
-        self.random_state = random_state
+		"""
+		self.path = path
+		self.test_size = test_size
+		self.random_state = random_state
 
-        # Load in each of the CSVs.
-        print("Loading in the data...")
-        tweets = self._load_data()
+		# Load in each of the CSVs.
+		print("Loading in the data...")
+		tweets = self._load_data()
 
         # Remove values without date or tweet
-        tweets = tweets.dropna()
+		tweets = tweets.dropna()
         # Perform some preprocessing as an intermediate step
         # This is a very expensive line of code (takes a long time
         # and I am going to cache the results to use between runs.
-        if cached(path, 'lemmatized.joblib'):
-            print("Cached file was found...loading lemmatized tweets" +
-                  " from the cache.")
+		if cached(path, 'lemmatized.joblib'):
+			print("Cached file was found...loading lemmatized tweets" +
+				" from the cache.")
+			tweets['clean_tweets'] = load_cached(path, 'lemmatized.joblib')
+		else:
+			print("No cache found. Loading now")
+			tweets['clean_tweets'] = self._preprocess(tweets)
 
-            tweets['clean_tweets'] = load_cached(path, 'lemmatized.joblib')
-        else:
-            print("No cache found...loading now")
-            tweets['clean_tweets'] = self._preprocess(tweets)
-
-        tweets['date'] = [datetime.strptime(d, '%Y-%m-%d %H:%M:%S').date() for d in
+			tweets['date'] = [datetime.strptime(d, '%Y-%m-%d %H:%M:%S').date() for d in
                     tweets['created_at']]
 
         # Create the count vector to process the tweets
-        print("Creating the count vector")
-        self.count_vec = CountVectorizer(stop_words='english',
+		print("Creating the count vector")
+		self.count_vec = CountVectorizer(stop_words='english',
                                          min_df=min_df,
                                          max_df=max_df)
-        if test_size > 0:
+		if test_size > 0:
             self.x, self.x_test = train_test_split(tweets,
                                                    test_size=test_size,
                                                    random_state=random_state)
-        else:
+		else:
             self.x = tweets
 
         # Create the count vectors
-        x_cv = self.count_vec.fit_transform(self.x['clean_tweets'])
+		x_cv = self.count_vec.fit_transform(self.x['clean_tweets'])
         # Remove unnecessary information and insert the count vector
         # into the x array
-        self.x = np.array(list(zip(self.x['date'], x_cv)))
+		self.x = np.array(list(zip(self.x['date'], x_cv)))
 
         # Save the cached count vector for future comparison
-        save_to_cache(self.path, self.count_vec, 'count_vec.joblib')
+		save_to_cache(self.path, self.count_vec, 'count_vec.joblib')
 
-        if test_size > 0:
+		if test_size > 0:
             x_test_cv = self.count_vec.transform(self.x_test['clean_tweets'])
             self.x_test = np.array(list(zip(self.x_test['date'],
                                    x_test_cv)))
 
-        self.agg_count = agg_count
-        self.sample_rate = sample_rate
-        self.data = None
-        self.vocab_size = len(self.count_vec.get_feature_names_out())
+		self.agg_count = agg_count
+		self.sample_rate = sample_rate
+		self.data = None
+		self.vocab_size = len(self.count_vec.get_feature_names_out())
 
-    def _load_data(self):
+	def _load_data(self):
         """
         This function reads the files from the path
         and returns a concatenated version of the data.
@@ -131,7 +130,7 @@ class Tweets():
 
         return pd.concat(data_frame)
 
-    def _preprocess(self, tweets):
+	def _preprocess(self, tweets):
         """
         This function is used to handle lemmatizing the data
         prior to its use.
@@ -152,11 +151,11 @@ class Tweets():
         try:
             joblib.dump(lemmatized, self.path+'cached/lemmatized.joblib')
         except FileNotFoundError:
-            os.mkdir(self.path+"/cached/")
-            joblib.dump(lemmatized, self.path+'cached/lemmatized.joblib')
+            os.mkdir(self.path + "/cached/")
+            joblib.dump(lemmatized, self.path + 'cached/lemmatized.joblib')
         return lemmatized
 
-    def load(self, test=False):
+	def load(self, test = False):
         """ This function handles loading the data from the count vector data."""
         if test:
             return TweetDataset(self.x_test, agg_count=self.agg_count,
@@ -166,52 +165,54 @@ class Tweets():
 
 
 class TweetDataset(Dataset):
-    """This class converts the pandas dataframe into a tensor
-       that will be loaded into the VAE"""
+	"""This class converts the pandas dataframe into a tensor
+		that will be loaded into the VAE"""
 
-    def __init__(self, df, agg_count=1000, sample_rate=5, random_state=42):
-        """
-           Inputs:
-               df - the dataframe object with the "count_vec" column and the date column.
-               acc_count - the number of tweets to aggregate by
-               sample_rate - the number of times to sample each day
-        """
-        # Define the objects used in the two functions below
-        self.dates = list(set(df[:, 0]))
-        self.agg_count = agg_count
-        self.sample_rate = sample_rate
-        self.generator = np.random.default_rng(seed=random_state)
-        self.df = df
+	def __init__(self, df, agg_count=1000, sample_rate=5, random_state=42):
+		"""
+			Inputs:
+				df - the dataframe object with the "count_vec" column and the date column.
+				acc_count - the number of tweets to aggregate by
+				sample_rate - the number of times to sample each day
+		"""
+		# Define the objects used in the two functions below
+		self.dates = list(set(df[:, 0]))
+		self.agg_count = agg_count
+		self.sample_rate = sample_rate
+		self.generator = np.random.default_rng(seed=random_state)
+		self.df = df
 
 		# Added to support looking up aqi
-        self.aqi = load_aqi()
+		self.aqi = load_aqi()
 
-    def __len__(self):
+	def __len__(self):
         """Return the length of the dataset"""
         return len(self.dates)*self.sample_rate
 
-    def __getitem__(self, idx):
-        """
-        This function selects the date at the index
-        provided. If the index is greater than the length
-        of the array (i.e., we are sampling multiple examples
-        from a date), then wraparound and keep sampling.
-        """
-        # Select the date
-        date = self.dates[idx % len(self.dates)]
-        # Randomly sample from this date.
-        #  1. Only look at count_vecs on this date.
-        #  2. Sample agg_count number of tweets, sum the count vectors,
-        #     and return.
+	def __getitem__(self, idx):
+		"""
+		This function selects the date at the index
+		provided. If the index is greater than the length
+		of the array (i.e., we are sampling multiple examples
+		from a date), then wraparound and keep sampling.
+		"""
+		# Select the date
+		date = self.dates[idx % len(self.dates)]
+		# Randomly sample from this date.
+		#  1. Only look at count_vecs on this date.
+		#  2. Sample agg_count number of tweets, sum the count vectors,
+		#     and return
 
-        count_vecs = self.df[np.where(self.df[:, 0] == date)][:, 1]
+		count_vecs = self.df[np.where(self.df[:, 0] == date)][:, 1]
 
-        # Sample using the generator
-        sample = self.generator.choice(count_vecs, self.agg_count, replace = True)
+		# Sample using the generator
+		sample = self.generator.choice(count_vecs, 
+		self.agg_count,
+										replace = True)
 
 		# Load the aqi to return
-        # Return the numpy array, summed along its axis.
-        return (torch.from_numpy(sample.sum().toarray()).float().requires_grad_(False),
+		# Return the numpy array, summed along its axis.
+		return (torch.from_numpy(sample.sum().toarray()).float().requires_grad_(False),
 				torch.tensor(self.aqi.get(date)))
 
 def load_aqi():
@@ -223,11 +224,11 @@ def load_aqi():
 
 	df = df[(df['State Name'] == 'California') & (df['county Name'] == 'San Francisco')][['Date', 'AQI']]
 
-    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d').apply(datetime.date)
+	df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d').apply(datetime.date)
 
-    df['AQI'] = np.log10(df['AQI'])
+	df['AQI'] = np.log10(df['AQI'])
 
-    return df.set_index('Date').to_dict().get('AQI')
+	return df.set_index('Date').to_dict().get('AQI')
 
 
 class VAE(nn.Module):
@@ -428,4 +429,3 @@ if __name__ == "__main__":
 		print('=====> Test set frobenius norm: {:.4f}'.format(avg_f_norm))
 
 	torch.save(model.state_dict(), './model/model_3epoch.pt')
-
