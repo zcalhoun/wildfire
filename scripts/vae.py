@@ -89,10 +89,10 @@ class Tweets:
             print("No cache found. Loading now")
             tweets["clean_tweets"] = self._preprocess(tweets)
 
-            tweets["date"] = [
-                datetime.strptime(d, "%Y-%m-%d %H:%M:%S").date()
-                for d in tweets["created_at"]
-            ]
+        tweets["date"] = [
+            datetime.strptime(d, "%Y-%m-%d %H:%M:%S").date()
+            for d in tweets["created_at"]
+        ]
 
         # Create the count vector to process the tweets
         print("Creating the count vector")
