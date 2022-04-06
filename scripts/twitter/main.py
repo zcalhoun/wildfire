@@ -1,3 +1,17 @@
+"""
+==========================================================
+Querying Twitter for geographic data from the command line
+==========================================================
+
+This script querys the Twitter API to pull tweets from a 25mi
+radius around specified geographic location and saves them in
+a csv.
+
+-o, --output_dir    Data directory for final tweets
+-c, --coordinates   Longitude, latitude of location
+-d, --dates         Start and end date for query (yyyy-mm-dd)
+"""
+
 from searchTwitter import TwitterSearchTerm
 import time
 import argparse
@@ -5,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 
 SLEEP_TIME = 4
-RETRY_LIMIT = 4
+RETRY_LIMIT = 10
 errors = []
 
 def query_twitter(query):
@@ -16,15 +30,17 @@ def query_twitter(query):
     total_tweets = 0
 
     while curr_date < query.end_date:
-        print("Starting query for", curr_date)
-
         # Find upper bound of our tweet window
         curr_end_date = min(query.end_date, curr_date + timedelta(days=30))
+
+        print("Starting query for", curr_date, "to", curr_end_date)
+
+        # Create search query
         searchQuery = TwitterSearchTerm(query_term, str(curr_date)+"T00:00:00z", str(curr_end_date)+"T00:00:00z")
 
         # Get the term count
         print("Querying for term count...")
-        for i in range(RETRY_LIMIT):
+        for _ in range(RETRY_LIMIT):
             try:
                 searchQuery.get_term_count()
                 if curr_date == query.start_date:
@@ -42,7 +58,7 @@ def query_twitter(query):
 
         # Retrieve the tweets
         print("Retrieving tweets")
-        for i in range(RETRY_LIMIT):
+        for _ in range(RETRY_LIMIT):
             try:
                 tweets = searchQuery.get_tweets()
             except Exception as e:
@@ -55,6 +71,9 @@ def query_twitter(query):
 
         # Save tweets to a file.
         tweets.to_csv(data_target_dir+str(curr_date)+'.csv', index=False)
+
+        # Update start date for next query
+        curr_date = curr_end_date
 
         # Sleep for a second before going to the next operation
         print()
@@ -77,7 +96,7 @@ class TwitterQuery:
 def main():
     parser = argparse.ArgumentParser(description="Geotagged Tweet Query Generator:")
     parser.add_argument("-o", '--output_dir', type=str, help="Enter the relative output directory", required=True)
-    parser.add_argument("-c", "--coordinates", nargs='+', type=float, help="Enter latitude longitude", required=True)
+    parser.add_argument("-c", "--coordinates", nargs='+', type=float, help="Enter longitude latitude", required=True)
     parser.add_argument("-d", "--dates", nargs="+", type=str, help="Enter startdate enddate (yyyy-mm-dd)", required=True)
 
     args = parser.parse_args()
@@ -86,7 +105,7 @@ def main():
     if len(args.coordinates) != 2:
         raise ValueError("Improper number of coordinates")
 
-    lat, lon = args.coordinates
+    lon, lat = args.coordinates
     if abs(lat) > 90 or abs(lon) > 180:
         raise ValueError("Improper coordinate values")
 

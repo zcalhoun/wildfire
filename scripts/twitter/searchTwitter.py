@@ -152,7 +152,6 @@ class TwitterSearchTerm():
         while("next_token" in response.json()["meta"]):
             payload["next_token"] = response.json()["meta"]["next_token"]
             response = requests.get("https://api.twitter.com/2/tweets/counts/all", params=payload, headers=self.create_header())
-    #         print(response)
             total_tweets = total_tweets + response.json()["meta"]["total_tweet_count"]
             responses.append(response.json()["data"])
 
@@ -227,7 +226,8 @@ class TwitterSearchTerm():
             "expansions":"geo.place_id,author_id",
             "place.fields":"geo,contained_within,country,full_name,name"
         }
-        request_num = 1 # Counter for tracking requests
+
+        request_num, total_requests = (1, None) # Counter for tracking requests
         if(self.tweet_count is None):
             print("Making request 1 of N")
         else:
@@ -236,7 +236,6 @@ class TwitterSearchTerm():
         response = requests.get("https://api.twitter.com/2/tweets/search/all", params=payload, headers=self.create_header())
             
         if (response.status_code != 200):
-
             print("==============================")
             print("The status is not 200. Response: ")
             print(response)
@@ -246,16 +245,15 @@ class TwitterSearchTerm():
             raise
         
         # This is required to get the lat/lon attributes
-        latlon = self.process_coordinates(response.json())
-        lats = latlon[0]
-        lons = latlon[1]
+        lats, lons = self.process_coordinates(response.json())
+
         data = []
         for i, row in enumerate(response.json()['data']):
 
             # Add a step to turn the created_at string to a datetime object
             #  - this makes functionality easier to use later on.
             date = datetime.strptime(row['created_at'],'%Y-%m-%dT%H:%M:%S.%fZ')
-            data.append([row['id'], row['author_id'], row['text'], row['geo'], date, lats[i], lons[i]])
+            data.append([row['id'], row['author_id'], " ".join(row['text'].splitlines()), row['geo'], date, lats[i], lons[i]])
 
         while("next_token" in response.json()["meta"]):
             request_num = request_num + 1
@@ -263,8 +261,8 @@ class TwitterSearchTerm():
             if(self.tweet_count is None):
                 print("Making request %d of N" % request_num)
             else:
-                total_requests = int(self.tweet_count/max_results)+1
                 print("Making request %d of %d" % (request_num, total_requests))
+
             payload["next_token"] = response.json()["meta"]["next_token"]
             response = requests.get("https://api.twitter.com/2/tweets/search/all", params=payload, headers=self.create_header())
 
@@ -277,15 +275,14 @@ class TwitterSearchTerm():
                 print("==============================")
                 raise
 
-            latlon = self.process_coordinates(response.json())
-            lats = latlon[0]
-            lons = latlon[1]
+            lats, lons = self.process_coordinates(response.json())
 
             for i, row in enumerate(response.json()['data']):
+                row['text'] = " ".join(row['text'].splitlines()) # remove newlines from text
                 if('geo' in row):
-                    data.append([row['id'], row['author_id'], row['text'], row['geo'], row['created_at'],lats[i], lons[i]])
+                    data.append([row['id'], row['author_id'], row['text'], row['geo'], row['created_at'], lats[i], lons[i]])
                 else:
-                    data.append([row['id'], row['author_id'], row['text'],None , row['created_at'],lats[i], lons[i]])
+                    data.append([row['id'], row['author_id'], row['text'], None , row['created_at'], lats[i], lons[i]])
         
         df = TwitterDataFrame(pd.DataFrame(data))
         df = df.rename(columns={
@@ -304,3 +301,4 @@ class TwitterSearchTerm():
 #         print(self.queryString)
         
         return "query: "+self.queryString+"; time: "+self.startTime+" to "+self.endTime
+        
