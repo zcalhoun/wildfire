@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 import joblib
 import numpy as np
+import functools
 
 from torch import nn, optim
 from torch.nn import functional as F
@@ -27,9 +28,9 @@ TWEET_PATH = "../data/san_francisco/"
 
 class Tweets:
     """Tweets class. This class handles the data and preprocesses
-	so that the data can be loaded easily into whatever format
-	is needed.
-	"""
+    so that the data can be loaded easily into whatever format
+    is needed.
+    """
 
     def __init__(
         self,
@@ -43,30 +44,29 @@ class Tweets:
         random_state=42,
     ):
         """
-		Input:
-			path: directory of twitter files, unprocessed.
+        Input:
+            path: directory of twitter files, unprocessed.
 
-			agg_count: the number of tweets to aggregate by.
+            agg_count: the number of tweets to aggregate by.
 
-			sample_rate: the number of total samples that we want
-			to get for each day.
+            sample_rate: the number of total samples that we want
+            to get for each day.
 
-			verbose: whether to print out steps of loading the data.
+            verbose: whether to print out steps of loading the data.
 
-			min_df: passed to the count_vec. This determines the amount
-				of tweets that the word must appear in to be included.
+            min_df: passed to the count_vec. This determines the amount
+                of tweets that the word must appear in to be included.
 
-			max_df: pass to the count_vec. This indicates the max
-				number of tweets that the word can occur in.
+            max_df: pass to the count_vec. This indicates the max
+                number of tweets that the word can occur in.
 
-			test_size: The percentage of tweets that are held out for
-				the test set.
+            test_size: The percentage of tweets that are held out for
+                the test set.
 
+        This class should build a count vector from the tweets themselves,
+        then store the tweets in an array that can be sampled from.
 
-		This class should build a count vector from the tweets themselves,
-		then store the tweets in an array that can be sampled from.
-
-		"""
+        """
         self.path = path
         self.test_size = test_size
         self.random_state = random_state
@@ -82,7 +82,7 @@ class Tweets:
         # and I am going to cache the results to use between runs.
         if cached(path, "lemmatized.joblib"):
             print(
-                "Cached file was found...loading lemmatized tweets" + " from the cache."
+                "Cached file was found...loading lemmatized", "tweets from the cache."
             )
             tweets["clean_tweets"] = load_cached(path, "lemmatized.joblib")
         else:
@@ -126,9 +126,9 @@ class Tweets:
 
     def _load_data(self):
         """
-		This function reads the files from the path
-		and returns a concatenated version of the data.
-		"""
+        This function reads the files from the path
+        and returns a concatenated version of the data.
+        """
         data_frame = []
         # Load the data
         files = os.listdir(self.path)
@@ -144,9 +144,9 @@ class Tweets:
 
     def _preprocess(self, tweets):
         """
-		This function is used to handle lemmatizing the data
-		prior to its use.
-		"""
+        This function is used to handle lemmatizing the data
+        prior to its use.
+        """
         tweet_tokenizer = TweetTokenizer()
         nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
         lemmatized = []
@@ -180,15 +180,15 @@ class Tweets:
 
 class TweetDataset(Dataset):
     """This class converts the pandas dataframe into a tensor
-		that will be loaded into the VAE"""
+        that will be loaded into the VAE"""
 
     def __init__(self, df, agg_count=1000, sample_rate=5, random_state=42):
         """
-			Inputs:
-				df - the dataframe object with the "count_vec" column and the date column.
-				acc_count - the number of tweets to aggregate by
-				sample_rate - the number of times to sample each day
-		"""
+            Inputs:
+                df - the dataframe object with the "count_vec" column and the date column.
+                acc_count - the number of tweets to aggregate by
+                sample_rate - the number of times to sample each day
+        """
         # Define the objects used in the two functions below
         self.dates = list(set(df[:, 0]))
         self.agg_count = agg_count
@@ -203,13 +203,14 @@ class TweetDataset(Dataset):
         """Return the length of the dataset"""
         return len(self.dates) * self.sample_rate
 
+    @lru_cache(maxsize=None)  # Save results of this function for quicker access
     def __getitem__(self, idx):
         """
-		This function selects the date at the index
-		provided. If the index is greater than the length
-		of the array (i.e., we are sampling multiple examples
-		from a date), then wraparound and keep sampling.
-		"""
+        This function selects the date at the index
+        provided. If the index is greater than the length
+        of the array (i.e., we are sampling multiple examples
+        from a date), then wraparound and keep sampling.
+        """
         # Select the date
         date = self.dates[idx % len(self.dates)]
         # Randomly sample from this date.
@@ -232,9 +233,9 @@ class TweetDataset(Dataset):
 
 def load_aqi():
     """
-	This function returns a dictionary containing AQI with the 
-	date object as the keys.
-	"""
+    This function returns a dictionary containing AQI with the 
+    date object as the keys.
+    """
     df = pd.read_csv(AQI_PATH)
 
     df = df[
@@ -250,23 +251,23 @@ def load_aqi():
 
 class VAE(nn.Module):
     """
-	Should rename -- PFA for Poisson Factor Analysis
-	"""
+    Should rename -- PFA for Poisson Factor Analysis
+    """
 
-    def __init__(self, vocab, num_components=20, prior_mean=0, prior_var=1):
+    def __init__(self, vocab, num_components=20, prior_mean=0, prior_logvar=0):
         """
-		Inputs
-		--------
-		vocab<int>: the size of the vocabulary
+        Inputs
+        --------
+        vocab<int>: the size of the vocabulary
 
-		This model only has the variational layer, then the output
-		to the reconstruction. At this point, there are no hidden layers.
-		"""
+        This model only has the variational layer, then the output
+        to the reconstruction. At this point, there are no hidden layers.
+        """
         super().__init__()
         self.num_components = num_components
 
         self.prior_mean = prior_mean
-        self.prior_var = prior_var
+        self.prior_logvar = prior_logvar
 
         self.enc_logvar = nn.Linear(vocab, num_components, bias=False)
         self.enc_mu = nn.Linear(vocab, num_components, bias=False)
@@ -297,9 +298,9 @@ class VAE(nn.Module):
 
     def get_topic_dist(self, x):
         """
-		When it comes to looking at the norm, we want to calculate the
-		probability that a certain sample belongs to each topic.
-		"""
+        When it comes to looking at the norm, we want to calculate the
+        probability that a certain sample belongs to each topic.
+        """
         s, _ = self.encode(x)
         W = self.parameters()  # TODO - figure out which parameters to add.
         norm = torch.norm(s @ W, p=1)  # Return the L1 norm
@@ -318,7 +319,13 @@ class VAE(nn.Module):
         # Referencing this derivation found here:
         # https://stanford.edu/~jduchi/projects/general_notes.pdf
         # Assume diagonal matrices for variance
-        KLD = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
+        KLD = 0.5 * torch.sum(
+            1
+            + logvar
+            - self.prior_logvar
+            - (mean - self.prior_mean) ** 2 / self.prior_logvar.exp()
+            - logvar.exp() / self.prior_logvar.exp()
+        )
 
         return KLD
 
@@ -338,8 +345,8 @@ class VAE(nn.Module):
 
 def cached(path, doc_type):
     """
-	This function looks for the path in the list of cached
-	objects and returns true if the line exists."""
+    This function looks for the path in the list of cached
+    objects and returns true if the line exists."""
     files = os.listdir(path)
     if "cached" in files:
         cached_files = os.listdir(path + "cached/")
@@ -350,8 +357,8 @@ def cached(path, doc_type):
 
 def load_cached(path, doc_type):
     """This function loads cached data, assuming
-		it exists. This data is return as it was
-		saved in the file."""
+        it exists. This data is return as it was
+        saved in the file."""
     return joblib.load(path + "cached/" + doc_type)
 
 
@@ -387,7 +394,10 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     # Run training and testing on the model.
-    loss = {"train": [], "val": []}
+    loss = {
+        "train": {"pnll": [], "mse": [], "kld": [], "total": []},
+        "val": {"pnll": [], "mse": [], "kld": [], "total": []},
+    }
     for epoch in range(EPOCHS):
         epoch_train_loss = 0
         epoch_test_loss = 0
@@ -411,6 +421,10 @@ if __name__ == "__main__":
             )
             loss = torch.mean(PNLL + MSE + 0.1 * KLD)
             loss.backward()
+            loss["train"]["pnll"].append(PNLL.item())
+            loss["train"]["mse"].append(MSE.item())
+            loss["train"]["kld"].append(KLD.item())
+            loss["train"]["total"].append(loss.item())
             epoch_train_loss += loss.item()
             optimizer.step()
             if batch_idx % print_rate == 0:
@@ -433,7 +447,9 @@ if __name__ == "__main__":
         # Capture testing performance.
         model.eval()
         frobenius_norms = []
-        poisson = [], mean_squared_error = [], kl_divergence = []
+        poisson = []
+        mean_squared_error = []
+        kl_divergence = []
         with torch.no_grad():
             for batch_idx, (data, y) in enumerate(test_loader):
                 # Add to GPU
@@ -445,6 +461,10 @@ if __name__ == "__main__":
                     recon_batch, data, mu, logvar, y, y_hat
                 )
                 loss = torch.mean(PNLL + MSE + 0.1 * KLD)
+                loss["val"]["pnll"].append(PNLL.item())
+                loss["val"]["mse"].append(MSE.item())
+                loss["val"]["kld"].append(KLD.item())
+                loss["val"]["total"].append(loss.item())
                 epoch_test_loss += loss.item()
 
                 # Calculate frobenius norm of the reconstructed matrix
@@ -457,11 +477,17 @@ if __name__ == "__main__":
         avg_f_norm = sum(frobenius_norms) / len(frobenius_norms)
         avg_mse = sum(mean_squared_error) / len(mean_squared_error)
         avg_kl = sum(kl_divergence) / len(kl_divergence)
+        avg_poisson = sum(poisson) / len(poisson)
         epoch_test_loss /= len(test_loader.dataset)
         print("===> Test set loss: {:.4f}".format(epoch_test_loss))
         # Print frobenius norm
         print("======> Test set frobenius norm: {:.4f}".format(avg_f_norm))
         print("======> Test set mean squared error: {:.4f}".format(avg_mse))
         print("======> Test set kl divergence: {:.4f}".format(avg_kl))
+        print("======> Test set poisson: {:.4f}".format(avg_poisson))
     torch.save(model.state_dict(), "./model/model_3epoch.pt")
+
+    # Save the loss to a file
+    with open("./model/loss_3epoch.json", "w") as f:
+        json.dump(loss, f)
 
