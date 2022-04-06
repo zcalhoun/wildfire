@@ -327,8 +327,7 @@ class VAE(nn.Module):
         PNLL = self.pois_nll(recon_x, x)
         # This will disproportionately weight higher values of y
         MSE = (y - y_hat).pow(10).mean()
-
-        return torch.mean(PNLL + MSE + KLD)
+        return PNLL, MSE, KLD
 
     @torch.no_grad()
     def reconstruct(self, X):
@@ -369,7 +368,7 @@ if __name__ == "__main__":
         device = torch.device("cuda")
 
     # Set up the tweets module
-    tweets = Tweets(TWEET_PATH, max_df=0.01, agg_count=1000, sample_rate=5)
+    tweets = Tweets(TWEET_PATH, max_df=0.005, agg_count=1000, sample_rate=10)
 
     # Load the train and test data
     print("Loading the training and test data.")
@@ -379,11 +378,11 @@ if __name__ == "__main__":
     train_loader = DataLoader(x_train, batch_size=128)
     test_loader = DataLoader(x_test, batch_size=128)
 
-    model = VAE(tweets.vocab_size, num_components=50)
+    model = VAE(tweets.vocab_size, num_components=100)
 
     model.to(device)
 
-    EPOCHS = 10
+    EPOCHS = 30
     print_rate = 10
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
@@ -407,7 +406,10 @@ if __name__ == "__main__":
             recon_batch = recon_batch.to(device)
             mu = mu.to(device)
             logvar = logvar.to(device)
-            loss = model.loss_function(recon_batch, data, mu, logvar, y, y_hat)
+            PNLL, MSE, KLD = model.loss_function(
+                recon_batch, data, mu, logvar, y, y_hat
+            )
+            loss = torch.mean(PNLL + MSE + 0.1 * KLD)
             loss.backward()
             epoch_train_loss += loss.item()
             optimizer.step()
@@ -431,6 +433,7 @@ if __name__ == "__main__":
         # Capture testing performance.
         model.eval()
         frobenius_norms = []
+        poisson = [], mean_squared_error = [], kl_divergence = []
         with torch.no_grad():
             for batch_idx, (data, y) in enumerate(test_loader):
                 # Add to GPU
@@ -438,19 +441,27 @@ if __name__ == "__main__":
                 y = y.to(device)
                 s, W, mu, logvar, y_hat = model(data)
                 recon_batch = s @ W
-                loss = model.loss_function(recon_batch, data, mu, logvar, y, y_hat)
+                PNLL, MSE, KLD = model.loss_function(
+                    recon_batch, data, mu, logvar, y, y_hat
+                )
+                loss = torch.mean(PNLL + MSE + 0.1 * KLD)
                 epoch_test_loss += loss.item()
 
                 # Calculate frobenius norm of the reconstructed matrix
                 frobenius_norms.append(
                     torch.norm(recon_batch - data, p="fro", dim=2).mean().item()
                 )
+                mean_squared_error.append(MSE)
+                kl_divergence.append(KLD)
 
         avg_f_norm = sum(frobenius_norms) / len(frobenius_norms)
+        avg_mse = sum(mean_squared_error) / len(mean_squared_error)
+        avg_kl = sum(kl_divergence) / len(kl_divergence)
         epoch_test_loss /= len(test_loader.dataset)
-        print("=====> Test set loss: {:.4f}".format(epoch_test_loss))
+        print("===> Test set loss: {:.4f}".format(epoch_test_loss))
         # Print frobenius norm
-        print("=====> Test set frobenius norm: {:.4f}".format(avg_f_norm))
-
+        print("======> Test set frobenius norm: {:.4f}".format(avg_f_norm))
+        print("======> Test set mean squared error: {:.4f}".format(avg_mse))
+        print("======> Test set kl divergence: {:.4f}".format(avg_kl))
     torch.save(model.state_dict(), "./model/model_3epoch.pt")
 
