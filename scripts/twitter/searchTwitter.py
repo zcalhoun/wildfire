@@ -134,16 +134,18 @@ class TwitterSearchTerm():
             print(response['text'])
             print(e)
             print("=========================")
-            raise
+            raise e
         else: # Check that the status code is 200
             if (response.status_code != 200):
-                print("=========================")
-                print("An error occurred.")
-                for i, error in enumerate(response.json()['errors']):
-                    print("Error ", i, ":")
-                    print(error['message'])
-                    print("=========================")
-                    raise
+                print("==============================")
+                print("The status is not 200.")
+                print("Response: ", response)
+                e = response.json()["errors"][0]["message"]
+                print("Error:", e)
+                print("Payload:")
+                print(payload)
+                print("==============================\n")
+                raise Exception(e)
         
         responses = [response.json()["data"]]
         total_tweets = response.json()["meta"]["total_tweet_count"]
@@ -236,13 +238,15 @@ class TwitterSearchTerm():
         response = requests.get("https://api.twitter.com/2/tweets/search/all", params=payload, headers=self.create_header())
             
         if (response.status_code != 200):
-            print("==============================")
-            print("The status is not 200. Response: ")
-            print(response)
-            print("Payload:")
-            print(payload)
-            print("==============================")
-            raise
+                print("==============================")
+                print("The status is not 200.")
+                print("Response: ", response)
+                e = response.json()["errors"][0]["message"]
+                print("Error:", e)
+                print("Payload:")
+                print(payload)
+                print("==============================\n")
+                raise Exception(e)
         
         # This is required to get the lat/lon attributes
         lats, lons = self.process_coordinates(response.json())
@@ -268,12 +272,14 @@ class TwitterSearchTerm():
 
             if (response.status_code != 200):
                 print("==============================")
-                print("The status is not 200. Response: ")
-                print(response)
+                print("The status is not 200.")
+                print("Response: ", response)
+                e = response.json()["errors"][0]["message"]
+                print("Error:", e)
                 print("Payload:")
                 print(payload)
-                print("==============================")
-                raise
+                print("==============================\n")
+                raise Exception(e)
 
             lats, lons = self.process_coordinates(response.json())
 
@@ -301,4 +307,3 @@ class TwitterSearchTerm():
 #         print(self.queryString)
         
         return "query: "+self.queryString+"; time: "+self.startTime+" to "+self.endTime
-        
