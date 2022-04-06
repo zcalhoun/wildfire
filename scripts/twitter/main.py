@@ -12,14 +12,15 @@ a csv.
 -d, --dates         Start and end date for query (yyyy-mm-dd)
 """
 
+from bdb import Breakpoint
 from searchTwitter import TwitterSearchTerm
 import time
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 
-SLEEP_TIME = 4
-RETRY_LIMIT = 10
+SLEEP_TIME = 5
+RETRY_LIMIT = 2
 errors = []
 
 def query_twitter(query):
@@ -47,30 +48,31 @@ def query_twitter(query):
                     with open(data_target_dir+"check.txt","w") as f:
                         f.write(str(searchQuery.tweet_count))
             except Exception as e:
-                print(e)
-                errors.append(curr_date)
+                errors.append((e, curr_date))
                 time.sleep(SLEEP_TIME)
                 continue
             else:
                 break
 
-        total_tweets += searchQuery.tweet_count
+        if searchQuery.tweet_count is not None:
+            total_tweets += searchQuery.tweet_count
 
         # Retrieve the tweets
         print("Retrieving tweets")
+        tweets = None
         for _ in range(RETRY_LIMIT):
             try:
                 tweets = searchQuery.get_tweets()
             except Exception as e:
-                print(e)
-                errors.append(curr_date)
+                errors.append((e, curr_date))
                 time.sleep(SLEEP_TIME)
                 continue
             else:
                 break
 
-        # Save tweets to a file.
-        tweets.to_csv(data_target_dir+str(curr_date)+'.csv', index=False)
+        if tweets is not None:
+            # Save tweets to a file.
+            tweets.to_csv(data_target_dir+str(curr_date)+'.csv', index=False)
 
         # Update start date for next query
         curr_date = curr_end_date
@@ -78,6 +80,11 @@ def query_twitter(query):
         # Sleep for a second before going to the next operation
         print()
         time.sleep(1)
+
+    if len(errors):
+        with open(data_target_dir+'errors.txt', 'w') as f:
+            for e, date in errors:
+                f.write("%s: %s\n" % (date, e))
 
     print("Script complete \n {} tweets collected \n {} failures".format(total_tweets, len(errors)))
     return
