@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 import joblib
 import numpy as np
-import functools
+from functools import lru_cache
 
 from torch import nn, optim
 from torch.nn import functional as F
@@ -375,8 +375,11 @@ if __name__ == "__main__":
         device = torch.device("cuda")
 
     # Set up the tweets module
-    tweets = Tweets(TWEET_PATH, max_df=0.005, agg_count=1000, sample_rate=10)
-
+    # Cache this output for future use
+    if not cached(DATA_PATH, "tweets_maxdf005_agg1000_sample10.joblib"):
+        tweets = Tweets(TWEET_PATH, max_df=0.005, agg_count=1000, sample_rate=10)
+    else:
+        tweets = load_cached(DATA_PATH, "tweets_maxdf005_agg1000_sample10.joblib")
     # Load the train and test data
     print("Loading the training and test data.")
     x_train = tweets.load(test=False)
