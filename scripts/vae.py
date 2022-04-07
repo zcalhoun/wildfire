@@ -113,7 +113,8 @@ class Tweets:
         self.x = np.array(list(zip(self.x["date"], x_cv)))
 
         # Save the cached count vector for future comparison
-        save_to_cache(self.path, self.count_vec, "count_vec.joblib")
+        if not cached(path, "lemmatized.joblib"):
+            save_to_cache(self.path, self.count_vec, "count_vec.joblib")
 
         if test_size > 0:
             x_test_cv = self.count_vec.transform(self.x_test["clean_tweets"])
@@ -333,7 +334,7 @@ class VAE(nn.Module):
         KLD = self._kl_divergence(mu, logvar)
         PNLL = self.pois_nll(recon_x, x)
         # This will disproportionately weight higher values of y
-        MSE = (y - y_hat).pow(10).mean()
+        MSE = (y - y_hat).pow(2).mean()
         return PNLL, MSE, KLD
 
     @torch.no_grad()
@@ -507,8 +508,8 @@ if __name__ == "__main__":
         # Print frobenius norm
         print("======> Test set frobenius norm: {:.4f}".format(avg_f_norm))
         print("======> Test set mean squared error: {:.4f}".format(avg_mse))
-        print("======> Test set kl divergence: {:.4f}".format(avg_kl))
-        print("======> Test set poisson: {:.4f}".format(avg_poisson))
+        print("======> Test set kl divergence: {:.4f}".format(avg_kld))
+        print("======> Test set poisson: {:.4f}".format(avg_pnll))
     torch.save(model.state_dict(), "./model/model_3epoch.pt")
 
     # Save the loss to a file
