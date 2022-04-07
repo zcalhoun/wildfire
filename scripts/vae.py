@@ -266,8 +266,8 @@ class VAE(nn.Module):
         super().__init__()
         self.num_components = num_components
 
-        self.prior_mean = prior_mean
-        self.prior_logvar = prior_logvar
+        self.prior_mean = torch.Tensor(prior_mean)
+        self.prior_logvar = torch.Tensor(prior_logvar)
 
         self.enc_logvar = nn.Linear(vocab, num_components, bias=False)
         self.enc_mu = nn.Linear(vocab, num_components, bias=False)
@@ -385,7 +385,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(x_train, batch_size=128)
     test_loader = DataLoader(x_test, batch_size=128)
 
-    model = VAE(tweets.vocab_size, num_components=100)
+    model = VAE(tweets.vocab_size, num_components=100, prior_mean=1)
 
     model.to(device)
 
