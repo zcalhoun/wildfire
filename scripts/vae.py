@@ -266,8 +266,8 @@ class VAE(nn.Module):
         super().__init__()
         self.num_components = num_components
 
-        self.prior_mean = torch.Tensor(prior_mean)
-        self.prior_logvar = torch.Tensor(prior_logvar)
+        self.prior_mean = torch.tensor(prior_mean)
+        self.prior_logvar = torch.tensor(prior_logvar)
 
         self.enc_logvar = nn.Linear(vocab, num_components, bias=False)
         self.enc_mu = nn.Linear(vocab, num_components, bias=False)
@@ -376,10 +376,11 @@ if __name__ == "__main__":
 
     # Set up the tweets module
     # Cache this output for future use
-    if not cached(DATA_PATH, "tweets_maxdf005_agg1000_sample10.joblib"):
+    if not cached(TWEET_PATH, "tweets_maxdf005_agg1000_sample10.joblib"):
         tweets = Tweets(TWEET_PATH, max_df=0.005, agg_count=1000, sample_rate=10)
+        save_to_cache(TWEET_PATH, tweets, "tweets_maxdf005_agg1000_sample10.joblib")
     else:
-        tweets = load_cached(DATA_PATH, "tweets_maxdf005_agg1000_sample10.joblib")
+        tweets = load_cached(TWEET_PATH, "tweets_maxdf005_agg1000_sample10.joblib")
     # Load the train and test data
     print("Loading the training and test data.")
     x_train = tweets.load(test=False)
