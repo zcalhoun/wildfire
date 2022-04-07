@@ -319,7 +319,7 @@ class VAE(nn.Module):
         # Referencing this derivation found here:
         # https://stanford.edu/~jduchi/projects/general_notes.pdf
         # Assume diagonal matrices for variance
-        KLD = 0.5 * torch.sum(
+        KLD = -0.5 * torch.sum(
             1
             + logvar
             - self.prior_logvar
@@ -398,7 +398,7 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     # Run training and testing on the model.
-    loss = {
+    loss_results = {
         "train": {"pnll": [], "mse": [], "kld": [], "total": []},
         "val": {"pnll": [], "mse": [], "kld": [], "total": []},
     }
@@ -426,13 +426,15 @@ if __name__ == "__main__":
             PNLL, MSE, KLD = model.loss_function(
                 recon_batch, data, mu, logvar, y, y_hat
             )
+			
+            loss = torch.mean(PNLL + MSE + 0.1 * KLD)
+            loss.backward()
+            optimizer.step()
             avg_pnll += torch.mean(PNLL).item()
             avg_mse += torch.mean(MSE).item()
             avg_kld += torch.mean(KLD).item()
-            loss = torch.mean(PNLL + MSE + 0.1 * KLD)
-            loss.backward()
             epoch_train_loss += loss.item()
-            optimizer.step()
+            
             if batch_idx % print_rate == 0:
                 print(
                     "Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
@@ -448,10 +450,10 @@ if __name__ == "__main__":
                 epoch, epoch_train_loss / len(train_loader.dataset)
             )
         )
-        loss["train"]["pnll"].append(avg_pnll / len(train_loader.dataset))
-        loss["train"]["mse"].append(avg_mse / len(train_loader.dataset))
-        loss["train"]["kld"].append(avg_kld / len(train_loader.dataset))
-        loss["train"]["total"].append(epoch_train_loss / len(train_loader.dataset))
+        loss_results["train"]["pnll"].append(avg_pnll / len(train_loader.dataset))
+        loss_results["train"]["mse"].append(avg_mse / len(train_loader.dataset))
+        loss_results["train"]["kld"].append(avg_kld / len(train_loader.dataset))
+        loss_results["train"]["total"].append(epoch_train_loss / len(train_loader.dataset))
 
         # loss['train'].append(epoch_train_loss)
 
@@ -493,10 +495,10 @@ if __name__ == "__main__":
         epoch_test_loss /= len(test_loader.dataset)
 
         # Append results to the json
-        loss["val"]["pnll"].append(avg_pnll)
-        loss["val"]["mse"].append(avg_mse)
-        loss["val"]["kld"].append(avg_kld)
-        loss["val"]["total"].append(epoch_test_loss)
+        loss_results["val"]["pnll"].append(avg_pnll)
+        loss_results["val"]["mse"].append(avg_mse)
+        loss_results["val"]["kld"].append(avg_kld)
+        loss_results["val"]["total"].append(epoch_test_loss)
 
         avg_f_norm = sum(frobenius_norms) / len(frobenius_norms)
         print("===> Test set loss: {:.4f}".format(epoch_test_loss))
