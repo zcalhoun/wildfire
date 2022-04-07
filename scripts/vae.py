@@ -426,7 +426,7 @@ if __name__ == "__main__":
             PNLL, MSE, KLD = model.loss_function(
                 recon_batch, data, mu, logvar, y, y_hat
             )
-			
+
             loss = torch.mean(PNLL + MSE + 0.1 * KLD)
             loss.backward()
             optimizer.step()
@@ -434,7 +434,7 @@ if __name__ == "__main__":
             avg_mse += torch.mean(MSE).item()
             avg_kld += torch.mean(KLD).item()
             epoch_train_loss += loss.item()
-            
+
             if batch_idx % print_rate == 0:
                 print(
                     "Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
@@ -453,7 +453,9 @@ if __name__ == "__main__":
         loss_results["train"]["pnll"].append(avg_pnll / len(train_loader.dataset))
         loss_results["train"]["mse"].append(avg_mse / len(train_loader.dataset))
         loss_results["train"]["kld"].append(avg_kld / len(train_loader.dataset))
-        loss_results["train"]["total"].append(epoch_train_loss / len(train_loader.dataset))
+        loss_results["train"]["total"].append(
+            epoch_train_loss / len(train_loader.dataset)
+        )
 
         # loss['train'].append(epoch_train_loss)
 
@@ -511,5 +513,5 @@ if __name__ == "__main__":
 
     # Save the loss to a file
     with open("./model/loss_3epoch.json", "w") as f:
-        json.dump(loss, f)
+        json.dump(loss_results, f)
 
