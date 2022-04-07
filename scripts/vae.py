@@ -403,6 +403,9 @@ if __name__ == "__main__":
         epoch_test_loss = 0
         # Run method on training
         model.train()
+        avg_pnll = 0
+        avg_mse = 0
+        avg_kld = 0
         for batch_idx, (data, y) in enumerate(train_loader):
             # Add training data to GPU
             data = data.to(device)
@@ -419,12 +422,11 @@ if __name__ == "__main__":
             PNLL, MSE, KLD = model.loss_function(
                 recon_batch, data, mu, logvar, y, y_hat
             )
+            avg_pnll += torch.mean(PNLL).item()
+            avg_mse += torch.mean(MSE).item()
+            avg_kld += torch.mean(KLD).item()
             loss = torch.mean(PNLL + MSE + 0.1 * KLD)
             loss.backward()
-            loss["train"]["pnll"].append(PNLL.item())
-            loss["train"]["mse"].append(MSE.item())
-            loss["train"]["kld"].append(KLD.item())
-            loss["train"]["total"].append(loss.item())
             epoch_train_loss += loss.item()
             optimizer.step()
             if batch_idx % print_rate == 0:
@@ -442,6 +444,11 @@ if __name__ == "__main__":
                 epoch, epoch_train_loss / len(train_loader.dataset)
             )
         )
+        loss["train"]["pnll"].append(avg_pnll / len(train_loader.dataset))
+        loss["train"]["mse"].append(avg_mse / len(train_loader.dataset))
+        loss["train"]["kld"].append(avg_kld / len(train_loader.dataset))
+        loss["train"]["total"].append(epoch_train_loss / len(train_loader.dataset))
+
         # loss['train'].append(epoch_train_loss)
 
         # Capture testing performance.
@@ -450,6 +457,9 @@ if __name__ == "__main__":
         poisson = []
         mean_squared_error = []
         kl_divergence = []
+        avg_pnll = 0
+        avg_mse = 0
+        avg_kld = 0
         with torch.no_grad():
             for batch_idx, (data, y) in enumerate(test_loader):
                 # Add to GPU
@@ -461,10 +471,9 @@ if __name__ == "__main__":
                     recon_batch, data, mu, logvar, y, y_hat
                 )
                 loss = torch.mean(PNLL + MSE + 0.1 * KLD)
-                loss["val"]["pnll"].append(PNLL.item())
-                loss["val"]["mse"].append(MSE.item())
-                loss["val"]["kld"].append(KLD.item())
-                loss["val"]["total"].append(loss.item())
+                avg_pnll += torch.mean(PNLL).item()
+                avg_mse += torch.mean(MSE).item()
+                avg_kld += torch.mean(KLD).item()
                 epoch_test_loss += loss.item()
 
                 # Calculate frobenius norm of the reconstructed matrix
@@ -474,11 +483,18 @@ if __name__ == "__main__":
                 mean_squared_error.append(MSE)
                 kl_divergence.append(KLD)
 
-        avg_f_norm = sum(frobenius_norms) / len(frobenius_norms)
-        avg_mse = sum(mean_squared_error) / len(mean_squared_error)
-        avg_kl = sum(kl_divergence) / len(kl_divergence)
-        avg_poisson = sum(poisson) / len(poisson)
+        avg_mse /= len(test_loader.dataset)
+        avg_pnll /= len(test_loader.dataset)
+        avg_kld /= len(test_loader.dataset)
         epoch_test_loss /= len(test_loader.dataset)
+
+        # Append results to the json
+        loss["val"]["pnll"].append(avg_pnll)
+        loss["val"]["mse"].append(avg_mse)
+        loss["val"]["kld"].append(avg_kld)
+        loss["val"]["total"].append(epoch_test_loss)
+
+        avg_f_norm = sum(frobenius_norms) / len(frobenius_norms)
         print("===> Test set loss: {:.4f}".format(epoch_test_loss))
         # Print frobenius norm
         print("======> Test set frobenius norm: {:.4f}".format(avg_f_norm))
