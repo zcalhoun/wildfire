@@ -55,15 +55,29 @@ class TwitterDataFrame(pd.DataFrame):
         pseudo_docs = pd.pivot_table(self,values="text",index="date",aggfunc=" ".join)
         return pseudo_docs
 
-    def group_by_days_and_batch(self, batch_size, freq=1, shuffle=True):
+    def group_by_day_and_batch(self, batch_size, freq=1, shuffle=False):
         """
         This function agreggates tweets by freq days into batches of batch_size and shuffles.
         """
-        if("date" not in self.columns):
+        if "date" not in self.columns:
             self['date'] = [d.date() for d in self['created_at']]
+
+        # Hacky: For each city break up df and call group_by_day_and_batch
+        if "city" in self.columns:
+            cities_df = []
+            for city in self.city.unique():
+                city_df = self[self.city==city]
+                city_df.drop("city", inplace=True, axis=1)
+                city_df = TwitterDataFrame(city_df).group_by_day_and_batch(batch_size, freq, shuffle)
+                city_df['city'] = city
+                cities_df.append(city_df)
+            return pd.concat(cities_df)
 
         # Groupby frequency and concat tweets as np array
         pseudo_docs = self.groupby(pd.Grouper(key='date', freq=str(freq)+'D'))['text'].apply(np.array).to_frame().reset_index()
+
+        # Remove dates with no Tweets
+        pseudo_docs = pseudo_docs[pseudo_docs.text.apply(lambda row: len(row)) != 0]
         
         # Shuffle tweets so each batch contains tweets from each day
         if shuffle:
