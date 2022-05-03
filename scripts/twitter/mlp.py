@@ -51,6 +51,9 @@ def make_get_vect(df, vectorizer):
     x_vect = vectorizer.transform(df.text)
     dates, cities = df.date.unique(), df.city.unique()
 
+    # Calling unique converts dates from timestamp to numpy.datetime64
+    dates = [pd.Timestamp(date) for date in dates]
+
     x_dict = {}
     for date in dates:
         for city in cities:
@@ -102,7 +105,7 @@ class TweetDataset(Dataset):
     
     def __init__(self, get_vect, get_aqi, agg_count=1000, sample_rate=30, random_state=42):
 
-        self.dates, self.cities = list(get_vect.keys())
+        self.dates, self.cities = zip(*get_vect.keys())
         self.agg_count = agg_count
         self.sample_rate = sample_rate
         self.generator = np.random.default_rng(seed=random_state)
