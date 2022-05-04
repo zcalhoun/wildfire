@@ -57,7 +57,9 @@ def make_get_vect(df, vectorizer):
     x_dict = {}
     for date in dates:
         for city in cities:
-            x_dict[(date,city)] = x_vect[(df.date == date) & (df.city == city)]
+            date_city_vect = x_vect[(df.date == date) & (df.city == city)]
+            if date_city_vect.shape[0] > 0:
+                x_dict[(date,city)] = date_city_vect
     return x_dict
 
 
