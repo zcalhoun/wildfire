@@ -124,11 +124,12 @@ class TweetDataset(Dataset):
         date = self.dates[idx]
         city = self.cities[idx]
         
-        sample = self.generator.choice(self.get_vect[(date, city)].toarray(), self.agg_count, replace=True)
+        arr = self.get_vect[(date, city)].toarray()
+        indices = np.random.randint(len(arr), size=self.agg_count)
         
         return (
-            torch.from_numpy(sample.sum(axis=0)).float().requires_grad_(False),
-                            torch.tensor(np.log10(self.get_aqi[(date, city)]))
+            torch.from_numpy(arr[indices].sum(axis=0)).float().requires_grad_(False),
+            torch.tensor(np.log10(self.get_aqi[(date, city)]))
         )
 
 
