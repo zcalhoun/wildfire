@@ -16,3 +16,5 @@ literature/
 notebooks/tweet_density.gif
 notebooks/*
 ece685/
+*.joblib
+mnist/*
