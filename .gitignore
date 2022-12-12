@@ -14,5 +14,7 @@ literature/
 */.twitter_creds.json
 *.pyc
 notebooks/tweet_density.gif
+notebooks/*
+ece685/
 *.joblib
 mnist/*
