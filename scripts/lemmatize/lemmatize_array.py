@@ -35,26 +35,21 @@ def main(
     # Get the list of dates:
     dates = df["date"].unique()
 
-    print("Creating the date tweet objects for multiprocessing")
-    date_tweets = []
-    for d in dates:
-        print("Date: ", d)
+    date_id = int(os.environ["SLURM_ARRAY_TASK_ID"])
 
-        # Get the tweets for the date
-        tweets = df[df["date"] == d]
+    print(f"The slurm id is {date_id}")
 
-        day_tweet = DayTweet(d, tweets['text'], aqi[d], city, target_dir)
+    if len(dates) <= date_id:
+        print("The date id is too large")
+        return
+    d = dates[date_id]
 
-        date_tweets.append(day_tweet)
-    
-    # Create a process pool to process all of the files
-    pool = mp.Pool(mp.cpu_count())
-    print(f"Available cpus: {mp.cpu_count()}")
+    tweets = df[df["date"] == d]
 
-    for result in pool.imap_unordered(create_file, date_tweets):
-        print(result)
+    day_tweet = DayTweet(d, tweets['text'], aqi[d], city, target_dir)
 
-    pool.close()
+    day_tweet.lemmatize_and_save()
+    print(f"Created file for {d}")
 
 def create_file(d):
     d.lemmatize_and_save()
