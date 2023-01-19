@@ -4,10 +4,12 @@ import argparse
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import multiprocessing as mp
 
 # For processing the tweets
-import spacy
 from nltk.tokenize import TweetTokenizer
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 
 
 def main(
@@ -33,59 +35,97 @@ def main(
     # Get the list of dates:
     dates = df["date"].unique()
 
-    print("Running through dates")
+    print("Creating the date tweet objects for multiprocessing")
+    date_tweets = []
     for d in dates:
         print("Date: ", d)
-        # Initialize the dictionary
-        tweet_dict = {}
-        tweet_dict["AQI"] = aqi[d]
 
         # Get the tweets for the date
         tweets = df[df["date"] == d]
 
-        # Lemmatize the tweets on this date
-        tweet_dict["tweets"] = lemmatize(tweets["text"])
+        day_tweet = DayTweet(d, tweets['text'], aqi[d], city, target_dir)
+
+        date_tweets.append(day_tweet)
+    
+    # Create a process pool to process all of the files
+    pool = mp.Pool(mp.cpu_count())
+    print(f"Available cpus: {mp.cpu_count()}")
+
+    for result in pool.imap_unordered(create_file, date_tweets):
+        print(result)
+
+    pool.close()
+
+def create_file(d):
+    d.lemmatize_and_save()
+    return d.date
+
+class DayTweet():
+    def __init__(self, date, text, aqi, city, target_dir):
+        self.date = date
+        self.text = text
+        self.aqi = aqi
+        self.city = city
+        self.target_dir = target_dir
+
+    def lemmatize_and_save(self):
+        # Create a place to hold the information
+        tweet_dict = {}
+        tweet_dict["AQI"] = self.aqi
+
+        # Apply the lemmatize function
+        tweet_dict["tweets"] = self.lemmatize()
 
         # Create a json of the lemmatized tweets
         json_data = json.dumps(tweet_dict)
 
         # Save the json to the target directory
-        file_name = str(city) + "_" + str(d) + ".json"
-        with open(os.path.join(target_dir, file_name.lower()), "w") as f:
+        file_name = str(self.city) + "_" + str(self.date) + ".json"
+        with open(os.path.join(self.target_dir, file_name.lower()), "w") as f:
             f.write(json_data)
 
+    def lemmatize(self,):
+        """
+        This function lemmatizes the tweets.
+        """
+        lemmatized = []
+        tweet_tokenizer = TweetTokenizer(preserve_case=False, strip_handles=True, reduce_len=True, match_phone_numbers=False)
 
-def lemmatize(tweets):
-    """
-    This function lemmatizes the tweets.
-    """
-    lemmatized = []
-    tweet_tokenizer = TweetTokenizer()
+        stop_words = set(stopwords.words('english'))
+        lemmatizer = WordNetLemmatizer()
+        for tweet in self.text:
+            # Tokenize the tweets
+            clean = tweet_tokenizer.tokenize(tweet)
 
-    nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
-    stop_words = nlp.Defaults.stop_words
-    for tweet in tweets:
-        clean_tweet = [
-            w for w in tweet_tokenizer.tokenize(tweet.lower()) if w.isalpha()
-        ]
-        # Skip if the length of the tweet is zero
-        if len(clean_tweet) == 0:
-            continue
+            # Remove non-unicode characters
+            clean = [w.encode('ascii', errors='ignore').decode() for w in clean]
+            
+            # Skip if the length of the tweet is zero
+            if len(clean) == 0:
+                continue
 
-        clean_tweet = [w for w in clean_tweet if not w in stop_words]
+            # Remove punctuation/emojis and 2 letter words
+            clean = [w for w in clean if len(w) > 2]
 
-        # Continue if length is now zero
-        if len(clean_tweet) == 0:
-            continue
-        doc = nlp(" ".join(clean_tweet))
+            # Skip if the length of the tweet is zero
+            if len(clean) == 0:
+                continue
 
-        # Get the sanitized tweet
-        clean_tweet = " ".join([token.lemma_ for token in doc if len(token.lemma_) > 2])
-        if len(clean_tweet) == 0:
-            continue
+            # Remove all of the stop words
+            clean = [w for w in clean if w not in stop_words]
 
-        lemmatized.append(clean_tweet)
-    return lemmatized
+            # Skip if the length of the tweet is zero
+            if len(clean) == 0:
+                continue
+
+            # Lemmatize the tweet
+            clean = [lemmatizer.lemmatize(w) for w in clean]
+
+            # Get the sanitized tweet
+            clean = " ".join(clean)
+
+            lemmatized.append(clean)
+        return lemmatized
 
 
 def load_data(input_dir):
